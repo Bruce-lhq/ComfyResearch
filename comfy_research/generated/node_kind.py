@@ -98,6 +98,7 @@ class GeneratedNodeKind(str, Enum):
     modular_addition_dataset = "modular_addition_dataset"
     moe_mlp_model = "moe_mlp_model"
     moe_mlp_token_model = "moe_mlp_token_model"
+    moving_statistics = "moving_statistics"
     mpp_spatiotemporal_model = "mpp_spatiotemporal_model"
     mse_loss = "mse_loss"
     multi_hop_fact_chain_dataset = "multi_hop_fact_chain_dataset"

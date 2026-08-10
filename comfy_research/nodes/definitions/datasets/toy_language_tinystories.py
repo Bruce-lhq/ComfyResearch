@@ -27,7 +27,6 @@ DEF = dataset_def(
             EnumField(key="dataSource", label="Data Source", default="synthetic", options=('synthetic', 'download')),
             EnumField(key="cacheDir", label="Cache Dir", default=""),
             EnumField(key="inspectFormat", label="Inspect Format", default="id"),
-            FloatField(key="vocabCap", label="Vocab Cap", default=256, sweepable=False),
             EnumField(key="tokenizerMode", label="Tokenizer Mode", default="char", options=('char', 'word')),
             IntField(key="seqLen", label="Seq Len", default=512),
             IntField(key="stride", label="Stride", default=64, min=1),

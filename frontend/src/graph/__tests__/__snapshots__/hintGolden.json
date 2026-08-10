@@ -74,6 +74,7 @@
  "model_weight_tensors": "Materialize all model parameters (named_parameters); wire tensor list into Tensor selector to pick one.",
  "modular_addition_dataset": "Grokking-style modular arithmetic: input tokens [a,b], label is (a + b) mod p.",
  "moe_mlp_model": "Mixture-of-experts MLP: softmax gate mixes K expert MLPs.",
+ "moving_statistics": "Rolling-window mean or standard deviation over a rank-1 (1D) tensor with configurable window, stride, and min periods; pass the result downstream as tensor.",
  "mpp_spatiotemporal_model": "MPP-like ViT: patchify frames, Transformer over space-time tokens, unpatch; matches arXiv:2310.02994-style field normalization.",
  "mse_loss": "Mean squared error loss for regression.",
  "multi_hop_fact_chain_dataset": "Synthetic chained relational facts plus query segment; scales hops for multi-step retrieval pressure.",

@@ -135,6 +135,7 @@ import { EffectiveRankNode } from "../components/nodes/EffectiveRankNode";
 import { SeriesEndpointGapNode } from "../components/nodes/SeriesEndpointGapNode";
 import { SmoothingCurveNode } from "../components/nodes/SmoothingCurveNode";
 import { DerivativeCurveNode } from "../components/nodes/DerivativeCurveNode";
+import { MovingStatisticsNode } from "../components/nodes/MovingStatisticsNode";
 import { PredictionNode } from "../components/nodes/PredictionNode";
 import { TensorSelectorNode } from "../components/nodes/TensorSelectorNode";
 import { DimensionPermutatorNode } from "../components/nodes/DimensionPermutatorNode";
@@ -317,6 +318,7 @@ const GENERATED_COMPONENT_ADAPTERS: Record<string, ComponentType<NodeProps>> = {
   SeriesEndpointGapNode,
   SmoothingCurveNode,
   DerivativeCurveNode,
+  MovingStatisticsNode,
   PredictionNode,
   ShapeCheckerNode,
   TensorReaderNode,

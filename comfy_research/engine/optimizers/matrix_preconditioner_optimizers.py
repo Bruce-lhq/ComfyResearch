@@ -66,19 +66,19 @@ def _eigh_psd_with_fallback(mat: torch.Tensor, eps: float) -> tuple[torch.Tensor
         except RuntimeError as exc:
             last_exc = exc
 
-    if work.device.type != "cpu":
-        # Low-rank Shampoo statistics can make CUDA eigh fail; retry in CPU double.
-        cpu_work = work.detach().cpu().double()
-        cpu_jitter = max(float(eps), float(torch.finfo(cpu_work.dtype).eps))
-        cpu_eye = torch.eye(cpu_work.shape[0], dtype=cpu_work.dtype, device=cpu_work.device)
-        for scale in _EIGH_JITTER_SCALES:
-            try:
-                evals, evecs = torch.linalg.eigh(cpu_work + (cpu_jitter * scale) * cpu_eye)
-                return evals.to(device=work.device, dtype=work.dtype), evecs.to(
-                    device=work.device, dtype=work.dtype
-                )
-            except RuntimeError as exc:
-                last_exc = exc
+    # Low-rank Shampoo statistics can make eigh fail on any device; retry in CPU
+    # double precision (B-004).
+    cpu_work = work.detach().cpu().double()
+    cpu_jitter = max(float(eps), float(torch.finfo(cpu_work.dtype).eps))
+    cpu_eye = torch.eye(cpu_work.shape[0], dtype=cpu_work.dtype, device=cpu_work.device)
+    for scale in _EIGH_JITTER_SCALES:
+        try:
+            evals, evecs = torch.linalg.eigh(cpu_work + (cpu_jitter * scale) * cpu_eye)
+            return evals.to(device=work.device, dtype=work.dtype), evecs.to(
+                device=work.device, dtype=work.dtype
+            )
+        except RuntimeError as exc:
+            last_exc = exc
 
     assert last_exc is not None
     raise last_exc

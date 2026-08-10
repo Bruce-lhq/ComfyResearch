@@ -736,6 +736,14 @@ class MoeMlpTokenModelParams(NodeParamsBase):
     tieWeights: str | list[str] = "yes"
     seed: int | list[int] = 0
 
+class MovingStatisticsParams(NodeParamsBase):
+    statistic: str | list[str] = "mean"
+    window: int | list[int] = 10
+    stride: int | list[int] = 1
+    minPeriods: int | list[int] = 1
+    logScaleX: bool | list[bool] = False
+    logScaleY: bool | list[bool] = False
+
 class MppSpatiotemporalModelParams(NodeParamsBase):
     contextFrames: int | list[int] = 4
     channels: int | list[int] = 1
@@ -1045,7 +1053,6 @@ class Phi1StyleDatasetParams(NodeParamsBase):
     dataSource: str | list[str] = "synthetic"
     cacheDir: str | list[str] = ""
     inspectFormat: str | list[str] = "id"
-    vocabCap: float | list[float] = 256
     tokenizerMode: str | list[str] = "char"
     seqLen: int | list[int] = 600
     stride: int | list[int] = 96
@@ -1404,7 +1411,6 @@ class TinystoriesDatasetParams(NodeParamsBase):
     dataSource: str | list[str] = "synthetic"
     cacheDir: str | list[str] = ""
     inspectFormat: str | list[str] = "id"
-    vocabCap: float | list[float] = 256
     tokenizerMode: str | list[str] = "char"
     seqLen: int | list[int] = 512
     stride: int | list[int] = 64
@@ -1638,6 +1644,7 @@ NODE_PARAM_MODELS: dict[str, type[NodeParamsBase]] = {
     "modular_addition_dataset": ModularAdditionDatasetParams,
     "moe_mlp_model": MoeMlpModelParams,
     "moe_mlp_token_model": MoeMlpTokenModelParams,
+    "moving_statistics": MovingStatisticsParams,
     "mpp_spatiotemporal_model": MppSpatiotemporalModelParams,
     "mse_loss": MseLossParams,
     "multi_hop_fact_chain_dataset": MultiHopFactChainDatasetParams,

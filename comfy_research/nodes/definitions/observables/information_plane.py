@@ -89,12 +89,20 @@ def record(rec: "ObservableRecorder", on: "Node") -> None:
         if count < int(x_eval.shape[0]):
             indices = torch.linspace(0, int(x_eval.shape[0]) - 1, count, device=x_eval.device).long()
             x_eval, y_eval = x_eval.index_select(0, indices), y_eval.index_select(0, indices)
-        history.append(information_plane_for_model(
+        points = information_plane_for_model(
             rec.model, x_eval, y_eval,
             bins=max(2, _scalar_int(data.get("bins"), 30)),
             include_output=_scalar_bool(data.get("includeOutput"), True),
             binning=str(data.get("binning") or "uniform_intervals"),
             output_mapping=str(data.get("outputMapping") or "tanh"),
-        ))
+        )
+        if not points:
+            warnings = getattr(rec, "observable_warnings", None)
+            if warnings is not None:
+                warnings[on.id] = (
+                    "no activation tensors captured for information plane on "
+                    f"{type(rec.model).__name__}; appending empty frame."
+                )
+        history.append(points)
     except Exception:
         history.append([])

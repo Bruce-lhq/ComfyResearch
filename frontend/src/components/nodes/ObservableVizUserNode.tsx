@@ -55,6 +55,7 @@ function patchData(
         pairedTrainerId: cur.pairedTrainerId,
         observableName: cur.observableName ?? def.observableName,
         vizYAxisLabel: cur.vizYAxisLabel,
+        warning: cur.warning,
         lastSweepSummary: cur.lastSweepSummary,
         valueHistory: cur.valueHistory,
         valueHistories: cur.valueHistories,
@@ -522,6 +523,11 @@ export function ObservableVizUserNode({ id, data, selected }: NodeProps) {
     >
       <ObservableVizHeaderBar id={id} pairedObservableId={d.pairedObservableId} title={headerTitle} />
       <div className="cr-node__body cr-node__body--tviz">
+        {typeof d.warning === "string" && d.warning.trim() ? (
+          <div className="cr-tviz-chart-warning" title={d.warning}>
+            {d.warning}
+          </div>
+        ) : null}
         <VizSocketsBar annotatorSource compareSource />
         <div className="cr-tviz-chart-divider" aria-hidden />
         <div className="cr-tviz-chart-controls nodrag nopan">

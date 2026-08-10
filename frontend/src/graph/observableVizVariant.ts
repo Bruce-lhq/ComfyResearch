@@ -106,3 +106,24 @@ export function observableVizAllowsTensorVizChain(node: Node | undefined): boole
   const v = getObservableVizVariant(node);
   return v != null && TENSOR_CHAIN_VARIANTS.has(v);
 }
+
+/** All 1D step-aligned series variants. Their `out_tensor` carries a rank-1 curve
+ * (single series via `valueHistory`, or multi-row via `valueHistories`). 2D /
+ * trajectory variants (embedding_trajectory, neuron_trajectory_2d, information_plane,
+ * attention_map) are excluded — their `out_tensor` is not a 1D series. */
+export const TENSOR_SERIES_VARIANTS: ReadonlySet<ObservableVizVariant> = new Set([
+  ...TENSOR_CHAIN_VARIANTS,
+  "gradient_norm",
+  "hessian_eigenvalues",
+  "activation_stats",
+  "weight_product_sv",
+  "kan_reg",
+  "layer_spectral_norm",
+]);
+
+/** True when the node is an observable viz whose `out_tensor` is a 1D step-aligned series. */
+export function observableVizHasTensorSeries(node: Node | undefined): boolean {
+  if (!node) return false;
+  const v = getObservableVizVariant(node);
+  return v != null && TENSOR_SERIES_VARIANTS.has(v);
+}

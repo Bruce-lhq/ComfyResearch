@@ -474,7 +474,7 @@ export function TrainingVisualizationNode({ id, data, selected }: NodeProps) {
     >
       <div className="cr-node__header">Training Viz</div>
       <div className="cr-node__body cr-node__body--tviz">
-        <VizSocketsBar mode="tensor_list" annotatorSource streamSource />
+        <VizSocketsBar mode="tensor_list" annotatorSource streamSource compareSource />
         <div className="cr-tviz-chart-divider" aria-hidden />
         <div className="cr-tviz-chart-controls cr-tviz-chart-controls--stacked nodrag nopan">
           {hasWeightRegLoss ? (

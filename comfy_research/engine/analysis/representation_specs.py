@@ -117,6 +117,45 @@ def _collect_leaf_module_io(model: nn.Module, x: torch.Tensor) -> dict[str, torc
     return store
 
 
+def _collect_all_module_io(model: nn.Module, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    """Fallback: capture I/O for every module (including containers) in one forward pass.
+
+    Covers models whose forward uses only functional activations or whose leaf
+    modules are reached through custom containers (B-003 collector hardening).
+    """
+    store: dict[str, torch.Tensor] = {}
+    handles: list[Any] = []
+    for name, mod in model.named_modules():
+        if not name:
+            continue
+        key_in = f"{name}::input"
+        key_out = f"{name}::output"
+
+        def make_pre(k: str):
+            def _pre(_m: nn.Module, args: Any) -> None:
+                t = _first_tensor(args)
+                if t is not None:
+                    store[k] = t.detach()
+            return _pre
+
+        def make_fwd(k: str):
+            def _fwd(_m: nn.Module, _args: Any, output: Any) -> None:
+                t = _first_tensor(output)
+                if t is not None:
+                    store[k] = t.detach()
+            return _fwd
+
+        handles.append(mod.register_forward_pre_hook(make_pre(key_in)))
+        handles.append(mod.register_forward_hook(make_fwd(key_out)))
+    try:
+        with torch.no_grad():
+            _forward_probe(model, x)
+    finally:
+        for h in handles:
+            h.remove()
+    return store
+
+
 def _legacy_mlp_tensors(model: nn.Module, model_node: Node, x: torch.Tensor) -> dict[str, torch.Tensor]:
     md: dict[str, Any] = model_node.data or {}
     depth = _scalar_int(md.get("depth"), 2)
@@ -305,6 +344,12 @@ def collect_representation_tensors(
                 return hooked
         except Exception:
             pass
+        try:
+            hooked = _collect_all_module_io(model, x)
+            if hooked:
+                return hooked
+        except Exception:
+            pass
         seq: nn.Sequential | None = None
         h_in = x
         if hasattr(model, "body") and isinstance(getattr(model, "body", None), nn.Sequential):
@@ -317,6 +362,44 @@ def collect_representation_tensors(
         if seq is not None:
             return _compute_activation_tensors(seq, h_in, int(depth))
     return {}
+
+
+def resolve_representation_for_log(
+    model: nn.Module,
+    representation_tensors: dict[str, torch.Tensor],
+    representation_id: str | None,
+) -> tuple[torch.Tensor | None, str | None]:
+    """Resolve a requested representation id against the collected module I/O tensors.
+
+    An exact match always wins. When the requested id is missing (for example the
+    stale default ``0::output`` on a model without a top-level ``0`` module), fall
+    back to the final hidden representation (the input of the last ``nn.Linear``
+    leaf), then to the last captured module output, then to any captured tensor.
+
+    Returns ``(tensor, resolved_id)``; ``resolved_id`` is ``None`` when nothing
+    could be resolved, and differs from the requested id only when a fallback
+    occurred (callers should surface that substitution as a warning).
+    """
+    tensors = representation_tensors or {}
+    requested = (representation_id or "").strip()
+    if requested and requested in tensors:
+        return tensors[requested], requested
+    if not tensors:
+        return None, None
+    # Fallback 1: final hidden representation = input of the last Linear leaf.
+    for name, mod in reversed(list(model.named_modules())):
+        if name and isinstance(mod, nn.Linear):
+            key = f"{name}::input"
+            if key in tensors:
+                return tensors[key], key
+    # Fallback 2: last captured module output (dict keeps named_modules order).
+    output_keys = [key for key in tensors if key.endswith("::output")]
+    if output_keys:
+        key = output_keys[-1]
+        return tensors[key], key
+    # Fallback 3: any captured tensor.
+    key = next(iter(tensors))
+    return tensors[key], key
 
 
 def fetch_representation_numpy(

@@ -3,8 +3,6 @@ import { effectiveCurveSeriesRows, sortCurveSeriesRowsForDisplay, type CurveSeri
 import { buildCurveOverlayPlotSeries, curveSeriesCanLogX, curveSeriesCanLogY, type CurveSeriesPlotXMode } from "./curveSeriesPlot";
 import { dualAxisWarranted, inferSeriesYAxis, type PlotSeries } from "./sweepVizPlot";
 import { resolveCurveSeriesVizUpstream } from "./resolveCurveSeriesVizUpstream";
-import { resolveObservableVizCompare, type ResolvedObservableVizCompare } from "./observableVizCompareResolution";
-import { resolveTensorViz1dCompare } from "./tensorViz1dCompareResolution";
 
 export type CurveSeriesVizSettings = {
   logScaleX: boolean;
@@ -90,19 +88,4 @@ export function resolveCurveSeriesViz(
 
 export function resolvedCurveVizUsesDualAxis(resolved: ResolvedCurveSeriesViz): boolean {
   return resolved.settings.dualAxis && dualAxisWarranted(resolved.plotSeries);
-}
-
-export function resolveMetricCompareSource(
-  nodes: Node[],
-  edges: Edge[],
-  compareNodeId: string,
-  targetHandle: "left" | "right",
-): ResolvedCurveSeriesViz | ResolvedObservableVizCompare | null {
-  const edge = edges.find((candidate) => candidate.target === compareNodeId && candidate.targetHandle === targetHandle);
-  if (!edge || edge.sourceHandle !== "compare") return null;
-  const source = nodes.find((node) => node.id === edge.source);
-  if (!source) return null;
-  if (source.type === "curve_series_viz") return resolveCurveSeriesViz(nodes, edges, edge.source);
-  if (source.type === "observable_viz") return resolveObservableVizCompare(source);
-  return resolveTensorViz1dCompare(nodes, edges, source);
 }

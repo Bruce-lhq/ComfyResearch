@@ -341,6 +341,20 @@ export function TensorSelectorNode({ id, data, selected }: NodeProps) {
               )}
             </div>
           </div>
+          {orderedKeys.length > 0 ? (
+            <div className="cr-trainer-io-row">
+              <div className="cr-trainer-io-row__leftwrap" />
+              <div className="cr-trainer-io-row__rightwrap">
+                <span className="cr-trainer-output-label">tensor list</span>
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id="tensor_list"
+                  className="cr-handle-source cr-handle-source--trainer-row cr-trainer-out-handle cr-trainer-out-handle--tensor"
+                />
+              </div>
+            </div>
+          ) : null}
           {outputCount > 1
             ? Array.from({ length: outputCount - 1 }, (_, i) => {
                 const labelN = i + 2;

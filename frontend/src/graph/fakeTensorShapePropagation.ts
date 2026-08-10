@@ -18,6 +18,8 @@ import type { SvdNodeData } from "../components/nodes/svdDefaults";
 import type { TensorSlicingNodeData } from "../components/nodes/tensorSlicingDefaults";
 import type { FlattenNodeData } from "../components/nodes/flattenDefaults";
 import { readFlattenExceptDim } from "../components/nodes/flattenDefaults";
+import { movingStatisticsOutputLength } from "../components/nodes/movingStatisticsDefaults";
+import type { MovingStatisticsNodeData } from "../components/nodes/movingStatisticsDefaults";
 import { intChoices } from "../components/nodes/multiValueUtils";
 import { readNodeCanvasIoMode } from "./nodeCanvasIoMode";
 import {
@@ -444,6 +446,19 @@ function computeNodeOutputs(n: Node, byTarget: Map<string, TensorSig[]>): { outs
     return { outs, err: false };
   }
 
+  if (t === "moving_statistics") {
+    const inn = firstSig(byTarget, "tensor");
+    if (!inn) return { outs, err: false };
+    if (inn.shape.length !== 1) return { outs, err: true };
+    const nd = (d as Partial<MovingStatisticsNodeData>);
+    const window = Math.max(1, Math.floor(Number(nd.window) || 10));
+    const stride = Math.max(1, Math.floor(Number(nd.stride) || 1));
+    const minPeriods = Math.max(1, Math.min(window, Math.floor(Number(nd.minPeriods) || 1)));
+    const outLen = movingStatisticsOutputLength(inn.shape[0] ?? 0, window, stride, minPeriods);
+    outs.set("tensor", { shape: [outLen], dtype: inn.dtype });
+    return { outs, err: false };
+  }
+
   if (t === "dimension_permutator") {
     const inn = firstSig(byTarget, "tensor_in");
     if (!inn) return { outs, err: false };
@@ -582,6 +597,7 @@ function collectOutgoingSourceHandles(n: Node, edges: Edge[]): Set<string> {
     n.type === "series_endpoint_gap" ||
     n.type === "smoothing_curve" ||
     n.type === "derivative_curve" ||
+    n.type === "moving_statistics" ||
     n.type === "statistics"
   ) {
     hs.add("tensor");
@@ -656,6 +672,7 @@ function skipGenericWhenEmpty(t: string): boolean {
     t === "series_endpoint_gap" ||
     t === "smoothing_curve" ||
     t === "derivative_curve" ||
+    t === "moving_statistics" ||
     t === "fake_tensor" ||
     t === "tensor_constant" ||
     t === "tensor_linspace" ||

@@ -22,7 +22,6 @@ export type ToyLanguageDatasetKind = (typeof TOY_LANGUAGE_DATASET_KINDS)[number]
 
 export type ToyLanguageDatasetNodeData = {
   vocabSize?: ListOr1<number>;
-  vocabCap?: ListOr1<number>;
   contextLength?: ListOr1<number>;
   trainSize?: ListOr1<number>;
   testSize?: ListOr1<number>;
@@ -111,7 +110,6 @@ export function defaultToyLanguageDatasetData(kind: ToyLanguageDatasetKind): Toy
   if (kind === "tinystories_dataset") {
     return {
       ...base,
-      vocabCap: 256,
       vocabSize: 256,
       contextLength: 64,
       tokenizerMode: "char",
@@ -122,7 +120,6 @@ export function defaultToyLanguageDatasetData(kind: ToyLanguageDatasetKind): Toy
   if (kind === "phi1_style_dataset") {
     return {
       ...base,
-      vocabCap: 256,
       vocabSize: 256,
       contextLength: 96,
       tokenizerMode: "char",

@@ -20,8 +20,10 @@ export type TrainerStreamVizPayload = {
   visualization_node_ids: string[];
   observable_viz_updates?: {
     node_id: string;
-    /** Same as the viz node’s ``pairedObservableId``; used if ``node_id`` does not match the canvas node. */
+    /** Same as the viz node's ``pairedObservableId``; used if ``node_id`` does not match the canvas node. */
     paired_observable_id?: string;
+    /** Human-readable observable warning (e.g. representation fallback) for this node. */
+    warning?: string;
     value_history?: number[];
     /** Accuracy observable: test split, same length as ``value_history``. */
     test_value_history?: number[];
@@ -316,6 +318,9 @@ export function applyTrainerVizPayload(
         }
         if (Array.isArray(obsPayload.attention_map_frames)) {
           patch.attentionMapFrames = obsPayload.attention_map_frames;
+        }
+        if (typeof obsPayload.warning === "string") {
+          patch.warning = obsPayload.warning;
         }
         return {
           ...n,
