@@ -1415,6 +1415,9 @@ function resolveTensorAtSourcePort(
       rank,
       shape,
       values,
+      ...(Array.isArray(t.stepTicks) && t.stepTicks.length === values.length
+        ? { xTicks: t.stepTicks.map((x) => Number(x)) }
+        : {}),
       sourceSummary: "Moving statistics · output",
     };
   }

@@ -14,13 +14,10 @@ export function computeMovingStatistic(
   minPeriods: number,
 ): number[] {
   const w = Math.max(1, Math.floor(window));
-  const s = Math.max(1, Math.floor(stride));
-  const mp = Math.max(1, Math.min(w, Math.floor(minPeriods)));
   const out: number[] = [];
-  for (let i = 0; i < values.length; i += s) {
+  for (const i of movingStatisticAnchors(values.length, window, stride, minPeriods)) {
     const start = Math.max(0, i - w + 1);
     const count = i - start + 1;
-    if (count < mp) continue;
     let sum = 0;
     for (let j = start; j <= i; j += 1) sum += values[j]!;
     if (statistic === "mean") {
@@ -36,4 +33,37 @@ export function computeMovingStatistic(
     out.push(Math.sqrt(acc / count));
   }
   return out;
+}
+
+/** Input indices kept as output anchors for a trailing rolling window. */
+export function movingStatisticAnchors(
+  n: number,
+  window: number,
+  stride: number,
+  minPeriods: number,
+): number[] {
+  const w = Math.max(1, Math.floor(window));
+  const s = Math.max(1, Math.floor(stride));
+  const mp = Math.max(1, Math.min(w, Math.floor(minPeriods)));
+  const out: number[] = [];
+  for (let i = 0; i < n; i += s) {
+    const start = Math.max(0, i - w + 1);
+    const count = i - start + 1;
+    if (count < mp) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+/** Output x coordinates: map each kept anchor through the aligned upstream ticks. */
+export function movingStatisticsOutputTicks(
+  stepTicks: number[] | null | undefined,
+  inputLength: number,
+  window: number,
+  stride: number,
+  minPeriods: number,
+): number[] | undefined {
+  if (!stepTicks || stepTicks.length !== inputLength) return undefined;
+  const ticks = movingStatisticAnchors(inputLength, window, stride, minPeriods).map((i) => stepTicks[i]!);
+  return ticks.every((t) => Number.isFinite(t)) ? ticks : undefined;
 }

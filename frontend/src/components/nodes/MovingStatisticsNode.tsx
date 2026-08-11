@@ -10,11 +10,7 @@ import {
   type MovingStatisticOp,
   type MovingStatisticsNodeData,
 } from "./movingStatisticsDefaults";
-import { computeMovingStatistic } from "./movingStatisticsMath";
-import type { TensorSelectorNodeData } from "./tensorSelectorDefaults";
-import { tensorSelectorOutputIndexFromSourceHandle } from "./tensorSelectorDefaults";
-import type { TrainingVisualizationNodeData } from "./trainingVisualizationDefaults";
-import type { TrainerNodeData } from "./trainerDefaults";
+import { computeMovingStatistic, movingStatisticsOutputTicks } from "./movingStatisticsMath";
 import {
   SL_CHART_H,
   SL_CHART_W,
@@ -70,18 +66,6 @@ function patchMovingStatisticsData(
 function finiteStepTicks(raw: unknown): number[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-}
-
-function estimateStepSpacing(steps: number[] | null): number {
-  if (!steps || steps.length < 2) return 1;
-  const deltas: number[] = [];
-  for (let i = 1; i < steps.length; i += 1) {
-    const d = steps[i]! - steps[i - 1]!;
-    if (Number.isFinite(d) && d > 0) deltas.push(d);
-  }
-  if (deltas.length === 0) return 1;
-  deltas.sort((a, b) => a - b);
-  return deltas[Math.floor(deltas.length / 2)] ?? 1;
 }
 
 function stepTicksFromTrainingLikeNode(n: Node | undefined): number[] | null {
@@ -371,12 +355,25 @@ export function MovingStatisticsNode({ id, data, selected }: NodeProps) {
       d.stride,
       d.minPeriods,
     );
+    const outputTicks = movingStatisticsOutputTicks(
+      stepTicks,
+      hydrated.values.length,
+      d.window,
+      d.stride,
+      d.minPeriods,
+    );
     const bad = outValues.some((v) => !Number.isFinite(v));
     update({
-      outputTensor: bad ? null : { shape: [outValues.length], values: outValues },
+      outputTensor: bad
+        ? null
+        : {
+            shape: [outValues.length],
+            values: outValues,
+            ...(outputTicks ? { stepTicks: outputTicks } : {}),
+          },
       lastError: bad ? "Moving statistic output contains non-finite values." : null,
     });
-  }, [d.statistic, d.window, d.stride, d.minPeriods, resolved, update]);
+  }, [d.statistic, d.window, d.stride, d.minPeriods, resolved, stepTicks, update]);
 
   useEffect(() => {
     if (resolved.kind !== "none") return;
@@ -485,7 +482,7 @@ export function MovingStatisticsNode({ id, data, selected }: NodeProps) {
         </p>
         <ProcessedCurveChart
           values={outputValues}
-          stepTicks={stepTicks}
+          stepTicks={d.outputTensor?.stepTicks ?? null}
           logScaleX={!!d.logScaleX}
           logScaleY={!!d.logScaleY}
         />

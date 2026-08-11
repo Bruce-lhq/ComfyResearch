@@ -6,6 +6,8 @@ export type ActivationRepresentation = { id: string; label: string };
 export type CollectedActivationTensor = {
   shape: number[];
   values: number[];
+  /** Optional x coordinates aligned with `values` (e.g. moving statistics output anchors). */
+  stepTicks?: number[];
 };
 
 /** Shapes only — values live on the server until a downstream node fetches them. */
