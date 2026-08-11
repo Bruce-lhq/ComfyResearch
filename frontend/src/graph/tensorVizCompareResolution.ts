@@ -33,15 +33,20 @@ export function resolveTensorVizCompare(
   if (tensor.rank !== 1) {
     return { resolved: null, reason: `Connected tensor is rank ${tensor.rank}, not a 1D series.` };
   }
+  const hasAlignedTicks =
+    Array.isArray(tensor.xTicks) && tensor.xTicks.length === tensor.values.length;
   const points = tensor.values
-    .map((y, x) => ({ x, xDisplay: String(x), y, rowId: `${node.id}-${x}` }))
-    .filter((point) => Number.isFinite(point.y));
+    .map((y, index) => {
+      const x = hasAlignedTicks ? Number(tensor.xTicks?.[index]) : index;
+      return { x, xDisplay: String(x), y, rowId: `${node.id}-${index}` };
+    })
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
   return {
     resolved: {
       nodeId: node.id,
       title: "1D tensor viz",
       plotSeries: points.length >= 2 ? [{ id: node.id, label: "tensor values", color: "var(--cr-chart-2)", points }] : [],
-      xKey: "index",
+      xKey: hasAlignedTicks ? "step" : "index",
       yAxisLabel: "value",
       canLogX: points.length > 0 && points.every((point) => point.x > 0),
       canLogY: points.length > 0 && points.every((point) => point.y > 0),

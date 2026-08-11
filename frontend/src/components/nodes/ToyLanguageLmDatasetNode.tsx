@@ -111,7 +111,6 @@ export function ToyLanguageLmDatasetNode({ id, data, selected, type }: NodeProps
     if (!mismatch) return;
     update({
       vocabSize: packIntList(expected),
-      vocabCap: packIntList(expected),
     });
   }, [kind, d.numBracketTypes, d.vocabSize, update]);
 
@@ -232,7 +231,7 @@ export function ToyLanguageLmDatasetNode({ id, data, selected, type }: NodeProps
                   : "Integer tokens in [0, V − 1]"
             }
             ariaLabel="Vocabulary size"
-            onCommit={(vals) => update({ vocabSize: packIntList(vals), vocabCap: packIntList(vals) })}
+            onCommit={(vals) => update({ vocabSize: packIntList(vals) })}
           />
         ) : null}
         <ComfyIntListField
@@ -321,7 +320,6 @@ export function ToyLanguageLmDatasetNode({ id, data, selected, type }: NodeProps
                 update({
                   numBracketTypes: packIntList(vals),
                   vocabSize: packIntList(vocabVals),
-                  vocabCap: packIntList(vocabVals),
                 });
               }}
             />

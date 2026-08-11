@@ -319,9 +319,7 @@ export function applyTrainerVizPayload(
         if (Array.isArray(obsPayload.attention_map_frames)) {
           patch.attentionMapFrames = obsPayload.attention_map_frames;
         }
-        if (typeof obsPayload.warning === "string") {
-          patch.warning = obsPayload.warning;
-        }
+        patch.warning = obsPayload.warning;
         return {
           ...n,
           data: {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -104,3 +105,21 @@ def test_recorder_degrades_missing_hook_shape_and_calculation_failures_to_empty_
     exploding = _rec(_Exploding(), x, y)
     record(exploding, _node())
     assert exploding.observable_embedding_histories["plane"] == [[]]
+
+
+def test_saxe_fixed_width_binning_tolerates_negative_activations() -> None:
+    model = _TinyNet()
+    x = -torch.ones(32, 2)
+    y = torch.zeros(32, dtype=torch.long)
+    points = information_plane_for_model(model, x, y, bins=8, binning="saxe_fixed_width_0_07")
+    assert len(points) == 2
+    assert all(len(point) == 2 and all(math.isfinite(value) for value in point) for point in points)
+
+
+def test_recorder_warns_when_measurement_raises() -> None:
+    x, y = _arrays()
+    rec = _rec(_Exploding(), x, y)
+    rec.observable_warnings = {}
+    record(rec, _node())
+    assert rec.observable_embedding_histories["plane"] == [[]]
+    assert "information plane measurement failed" in rec.observable_warnings["plane"]

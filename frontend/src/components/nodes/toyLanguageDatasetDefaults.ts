@@ -22,6 +22,8 @@ export type ToyLanguageDatasetKind = (typeof TOY_LANGUAGE_DATASET_KINDS)[number]
 
 export type ToyLanguageDatasetNodeData = {
   vocabSize?: ListOr1<number>;
+  /** Legacy saved-graph key from before the vocabSize-only migration; new edits write vocabSize only. */
+  vocabCap?: ListOr1<number>;
   contextLength?: ListOr1<number>;
   trainSize?: ListOr1<number>;
   testSize?: ListOr1<number>;

@@ -66,6 +66,8 @@ const TYPE_INPUT_SOCKETS: Readonly<Record<string, readonly string[]>> = {
   moving_statistics: ["tensor"],
   observable_viz: ["tensor"],
   tensor_selector: ["tensor_list"],
+  tensor_viz_general: ["tensor_list"],
+  tensor_viz_2d: ["tensor_list"],
   model_checkpoint: ["model_checkpoint"],
 };
 
@@ -73,7 +75,7 @@ const TYPE_OUTPUT_SOCKETS: Readonly<Record<string, readonly string[]>> = {
   observable_viz: ["out_tensor", "compare"],
   observable_accuracy: ["out_tensor", "compare"],
   observable_user: ["observable"],
-  tensor_selector: ["selected_tensor"],
+  tensor_selector: ["selected_tensor", "tensor_list"],
   dimension_permutator: ["tensor_out"],
   tensor_slicing: ["tensor"],
   elementwise_transform: ["tensor"],

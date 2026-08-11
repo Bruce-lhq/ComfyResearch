@@ -25,6 +25,13 @@ describe("nodeSockets", () => {
   it("exposes no sockets for language/comment-only nodes", () => {
     expect(outputSocketsFor("url_node")).toHaveLength(0);
   });
+
+  it("exposes tensor_list sockets for tensor selector output and tensor viz general/2d input", () => {
+    expect(outputSocketsFor("tensor_selector")).toContain("tensor_list");
+    expect(inputSocketsFor("tensor_viz_general")).toContain("tensor_list");
+    expect(inputSocketsFor("tensor_viz_2d")).toContain("tensor_list");
+    expect(inputSocketsFor("tensor_viz_1d")).not.toContain("tensor_list");
+  });
 });
 
 describe("canNodeTypeConnectToAny", () => {
@@ -90,5 +97,12 @@ describe("canNodeTypeConnectToAny", () => {
   it("accepts a tensor selector fed by a dataset (dataset -> tensor_list)", () => {
     const canvas = [N("ds", "linear_dataset")];
     expect(canNodeTypeConnectToAny("tensor_selector", canvas)).toBe(true);
+  });
+
+  it("accepts a tensor selector feeding tensor viz general/2d via tensor_list", () => {
+    for (const t of ["tensor_viz_general", "tensor_viz_2d"]) {
+      const canvas = [N("viz", t)];
+      expect(canNodeTypeConnectToAny("tensor_selector", canvas)).toBe(true);
+    }
   });
 });

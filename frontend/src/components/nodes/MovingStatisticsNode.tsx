@@ -143,7 +143,7 @@ function resolveUpstreamStepTicks(nodes: Node[], edges: Edge[], consumerId: stri
   return null;
 }
 
-function ProcessedCurveChart({
+export function ProcessedCurveChart({
   values,
   stepTicks,
   logScaleX,
@@ -154,14 +154,6 @@ function ProcessedCurveChart({
   logScaleX: boolean;
   logScaleY: boolean;
 }) {
-  if (values.length === 0) return <p className="cr-node__hint">No output values yet.</p>;
-  if (values.length === 1) {
-    return (
-      <p className="cr-node__hint">
-        Output has one point: <strong>{slFormatYTick(values[0]!, logScaleY)}</strong>
-      </p>
-    );
-  }
   const steps = useMemo(() => {
     if (stepTicks && stepTicks.length === values.length) return stepTicks;
     return values.map((_, i) => i);
@@ -182,6 +174,15 @@ function ProcessedCurveChart({
     () => slGenerateYTicks(bounds.minY, bounds.maxY, logScaleY),
     [bounds.minY, bounds.maxY, logScaleY],
   );
+
+  if (values.length === 0) return <p className="cr-node__hint">No output values yet.</p>;
+  if (values.length === 1) {
+    return (
+      <p className="cr-node__hint">
+        Output has one point: <strong>{slFormatYTick(values[0]!, logScaleY)}</strong>
+      </p>
+    );
+  }
 
   const innerBottom = slInnerBottom();
   const innerRight = slInnerRight();

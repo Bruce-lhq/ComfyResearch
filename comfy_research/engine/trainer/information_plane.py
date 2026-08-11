@@ -126,7 +126,10 @@ def _quantize_column(values: np.ndarray, *, bins: int, strategy: str) -> np.ndar
         q = np.floor((v - lo) * (n_bins / (hi - lo))).astype(np.int16)
         return np.clip(q, 0, n_bins - 1)
     if strategy == "saxe_fixed_width_0_07":
-        return np.floor(v / 0.07).astype(np.int32)
+        q = np.floor(v / 0.07).astype(np.int64)
+        if q.size:
+            _, q = np.unique(q, return_inverse=True)
+        return q.astype(np.int64)
     raise ValueError(f"unknown information-plane binning strategy: {strategy}")
 
 

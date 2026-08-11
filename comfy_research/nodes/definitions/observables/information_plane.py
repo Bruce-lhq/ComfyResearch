@@ -104,5 +104,10 @@ def record(rec: "ObservableRecorder", on: "Node") -> None:
                     f"{type(rec.model).__name__}; appending empty frame."
                 )
         history.append(points)
-    except Exception:
+    except Exception as exc:
+        warnings = getattr(rec, "observable_warnings", None)
+        if warnings is not None:
+            warnings[on.id] = (
+                f"information plane measurement failed: {type(exc).__name__}: {exc}; appending empty frame."
+            )
         history.append([])

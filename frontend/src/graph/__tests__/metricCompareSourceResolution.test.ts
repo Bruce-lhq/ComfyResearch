@@ -70,6 +70,24 @@ describe("metric compare generic source resolution", () => {
     expect(resolved.value.plotSeries[0]!.points.map((p) => p.y)).toEqual([1, 2, 3]);
   });
 
+  it("1d tensor viz preserves non-uniform upstream step ticks", () => {
+    const tv = N("tv", "training_visualization", {
+      stepTicks: [10, 20, 40],
+      lossHistory: [1, 2, 3],
+    });
+    const viz = N("viz", "tensor_viz_1d");
+    const mc = N("mc", "metric_compare");
+    const edges = [
+      { source: "tv", target: "viz", sourceHandle: "out_tensor_list", targetHandle: "tensor" },
+      E("viz", "mc"),
+    ];
+    const resolved = resolveMetricCompareSource([tv, viz, mc], edges, "mc", "left");
+    expect(resolved?.ok).toBe(true);
+    if (!resolved?.ok) return;
+    expect(resolved.value.plotSeries[0]!.points.map((p) => p.x)).toEqual([10, 20, 40]);
+    expect(resolved.value.xKey).toBe("step");
+  });
+
   it("rank-2 tensor viz warns instead of comparing", () => {
     const tc = N("tc", "tensor_constant", { outputTensor: { shape: [2, 2], values: [1, 2, 3, 4] } });
     const viz = N("viz", "tensor_viz_general");
