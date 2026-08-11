@@ -62,7 +62,8 @@ def test_readme_uses_onboarding_overview_before_reproduction_result() -> None:
 def test_readme_states_maturity_links_blog_and_first_run_success() -> None:
     source = README.read_text()
 
-    assert "Status-Pre--release" in source
+    assert "Version-v0.1.0-blue" in source
+    assert f"{CANONICAL_REPOSITORY}/tree/v0.1.0" in source
     assert (
         "https://meta-circle.com/blog/comfyresearch-see-how-learning-happens"
         in source

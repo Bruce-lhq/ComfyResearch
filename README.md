@@ -4,7 +4,7 @@
 
 **Build reproducible machine-learning experiments as executable node graphs.**
 
-![Status: pre-release](https://img.shields.io/badge/Status-Pre--release-orange)
+[![Version: v0.1.0](https://img.shields.io/badge/Version-v0.1.0-blue)](https://github.com/MetaCircleAI/ComfyResearch/tree/v0.1.0)
 [![CI](https://github.com/MetaCircleAI/ComfyResearch/actions/workflows/ci.yml/badge.svg)](https://github.com/MetaCircleAI/ComfyResearch/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white)
