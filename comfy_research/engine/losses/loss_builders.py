@@ -298,6 +298,11 @@ class MultiSlotCrossEntropyLoss(nn.Module):
             raise ValueError("MultiSlotCrossEntropyLoss expects pred with shape [batch, K, vocab]")
         if target.dim() != 2:
             raise ValueError("MultiSlotCrossEntropyLoss expects target with shape [batch, K]")
+        if tuple(pred.shape[:2]) != tuple(target.shape):
+            raise ValueError(
+                "MultiSlotCrossEntropyLoss target [batch, K] must match pred [batch, K, vocab]; "
+                f"got pred {tuple(pred.shape)} and target {tuple(target.shape)}."
+            )
         b, k, v = pred.shape
         return self._ce(pred.reshape(b * k, v), target.reshape(b * k).long())
 

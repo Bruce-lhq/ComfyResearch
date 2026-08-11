@@ -58,3 +58,26 @@ def test_multi_slot_primary_loss_rejects_flat_shapes() -> None:
             loss_scale=1.0,
         )
     assert "MultiSlot" in str(exc_info.value.detail)
+
+
+def test_multi_slot_primary_loss_rejects_transposed_target() -> None:
+    pred = torch.randn(2, 3, 5)  # [B=2, K=3, V=5]
+    targets = torch.randint(0, 5, (3, 2))  # transposed [K, B]: same six slots, wrong pairing
+    criterion = MultiSlotCrossEntropyLoss()
+    with pytest.raises(HTTPException) as exc_info:
+        _trainer_primary_loss_tensor(
+            pred,
+            targets,
+            trainer_task="token_classification",
+            criterion=criterion,
+            loss_scale=1.0,
+        )
+    assert "must match" in str(exc_info.value.detail)
+
+
+def test_multi_slot_criterion_rejects_transposed_target() -> None:
+    pred = torch.randn(2, 3, 5)
+    targets = torch.randint(0, 5, (3, 2))
+    criterion = MultiSlotCrossEntropyLoss()
+    with pytest.raises(ValueError, match="must match"):
+        criterion(pred, targets)

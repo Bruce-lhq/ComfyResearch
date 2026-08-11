@@ -45,6 +45,15 @@ def _trainer_primary_loss_tensor(
                         f"got pred {tuple(int(d) for d in pred.shape)} and targets {tuple(int(d) for d in y.shape)}."
                     ),
                 )
+            if tuple(pred.shape[:2]) != tuple(y.shape):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "MultiSlot cross-entropy target [batch, K] must match pred [batch, K, vocab]; "
+                        f"got pred {tuple(int(d) for d in pred.shape)} and targets "
+                        f"{tuple(int(d) for d in y.shape)}."
+                    ),
+                )
             return criterion(pred, y) * loss_scale
         if trainer_task == "token_classification" and pred.dim() == 3 and y.dim() == 2:
             if int(pred.shape[0]) != int(y.shape[0]) or int(pred.shape[1]) != int(y.shape[1]):

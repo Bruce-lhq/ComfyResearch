@@ -27,6 +27,25 @@ def test_eigh_rejects_non_finite_result(monkeypatch: pytest.MonkeyPatch) -> None
         _eigh_psd_with_fallback(torch.tensor([[2.0, 0.0], [0.0, 1.0]]), eps=1e-8)
 
 
+def test_eigh_retries_after_transient_non_finite_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_eigh = torch.linalg.eigh
+    calls = 0
+
+    def transient_nan_eigh(mat: torch.Tensor, *args: object, **kwargs: object):
+        nonlocal calls
+        calls += 1
+        evals, evecs = real_eigh(mat, *args, **kwargs)
+        if calls == 1:
+            return evals * float("nan"), evecs
+        return evals, evecs
+
+    monkeypatch.setattr(torch.linalg, "eigh", transient_nan_eigh)
+    evals, evecs = _eigh_psd_with_fallback(torch.tensor([[2.0, 0.0], [0.0, 1.0]]), eps=1e-8)
+    assert calls >= 2
+    assert torch.isfinite(evals).all()
+    assert torch.isfinite(evecs).all()
+
+
 def test_eigh_cpu_double_fallback_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     real_eigh = torch.linalg.eigh
 
