@@ -75,6 +75,61 @@ describe("local trainer result routing", () => {
     });
   });
 
+  it("clears a stale observable warning on a later clean run", () => {
+    let nodes = [
+      { id: "trainer", type: "trainer", position: { x: 0, y: 0 }, data: {} },
+      { id: "obs", type: "observable_weight_l2", position: { x: 0, y: 0 }, data: {} },
+      {
+        id: "obs-viz",
+        type: "observable_viz",
+        position: { x: 0, y: 0 },
+        data: { pairedObservableId: "obs", warning: "representation fallback" },
+      },
+    ] as Node[];
+    const edges = [
+      {
+        id: "obs-trainer",
+        source: "obs",
+        target: "trainer",
+        sourceHandle: "observable",
+        targetHandle: "observables",
+      },
+      {
+        id: "trainer-obs-viz",
+        source: "trainer",
+        target: "obs-viz",
+        sourceHandle: "observable_results",
+        targetHandle: "tensor",
+      },
+    ] as Edge[];
+
+    applyTrainerVizPayload(
+      (update) => {
+        nodes = update(nodes);
+      },
+      {
+        loss_history: [],
+        step_ticks: [1],
+        plot_png_base64: "",
+        visualization_node_ids: [],
+        observable_viz_updates: [
+          {
+            node_id: "trainer::__observable_result__obs",
+            paired_observable_id: "obs",
+            value_history: [4, 5, 6],
+          },
+        ],
+      },
+      "trainer",
+      undefined,
+      edges,
+    );
+
+    const vizData = nodes.find((node) => node.id === "obs-viz")?.data as Record<string, unknown>;
+    expect(vizData.valueHistory).toEqual([4, 5, 6]);
+    expect(vizData.warning).toBeUndefined();
+  });
+
   it("routes fallback attention-map frames to the paired canvas visualization", () => {
     let nodes = [
       { id: "trainer", type: "trainer", position: { x: 0, y: 0 }, data: {} },

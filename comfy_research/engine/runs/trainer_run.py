@@ -357,7 +357,13 @@ def iter_trainer_events_from_context(ctx: TrainerRunContext) -> Iterator[dict[st
     """Stream NDJSON events from a prepared run (no validation; use prepare_trainer_run first)."""
     recorder = ObservableRecorder(ctx, get_user_observable_record=get_user_observable_record)
     recorder.restore_resume_series()
-    yield from run_training_loop(ctx, recorder)
+    try:
+        yield from run_training_loop(ctx, recorder)
+    except Exception as exc:
+        yield {
+            "type": "error",
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def iter_trainer_events(

@@ -120,6 +120,7 @@ def observable_viz_metric_updates(
     metric_histories: dict[str, list[float]],
     embedding_histories: dict[str, list[list[list[float]]]],
     attention_slice_histories: dict[str, list[dict[str, Any]]] | None = None,
+    warnings: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build per-viz payloads for weight norm dynamics (same step_ticks as loss)."""
     has_viz_target = any(
@@ -166,6 +167,7 @@ def observable_viz_metric_updates(
                 metric_histories,
                 embedding_histories,
                 attention_slice_histories,
+                warnings,
             )
 
     out: list[dict[str, Any]] = []
@@ -479,4 +481,9 @@ def observable_viz_metric_updates(
             if not hist:
                 continue
             out.append(_obs_viz_stream_row({"node_id": viz.id, "value_history": hist}, paired))
+    if warnings:
+        for row in out:
+            paired_id = row.get("paired_observable_id")
+            if paired_id in warnings:
+                row["warning"] = warnings[paired_id]
     return out

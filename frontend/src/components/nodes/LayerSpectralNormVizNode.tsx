@@ -14,7 +14,7 @@ export function LayerSpectralNormVizNode({ id, data, selected }: NodeProps) {
   const xy = (x: number, y: number) => `${28 + 184 * x / maxX},${112 - 88 * (y - minY) / Math.max(1e-9, maxY - minY)}`;
   return <div className={`cr-node cr-node--observable-viz-layer-spectral-norm${selected ? " cr-node--selected" : ""}`}>
     <ObservableVizHeaderBar id={id} pairedObservableId={d.pairedObservableId} title="Layer spectral norm" />
-    <div className="cr-node__body cr-node__body--compact"><VizSocketsBar />
+    <div className="cr-node__body cr-node__body--compact"><VizSocketsBar compareSource />
       <svg width="232" height="132" role="img" aria-label="Layer spectral norm curves"><line x1="28" y1="112" x2="212" y2="112" stroke="currentColor" opacity=".35" /><line x1="28" y1="12" x2="28" y2="112" stroke="currentColor" opacity=".35" />
         {rows.map((r, ri) => <path key={ri} d={r.map((y, xi) => Number.isFinite(y) ? `${xi === 0 ? "M" : "L"}${xy(steps[xi] ?? xi, y)}` : "").join(" ")} fill="none" stroke={COLORS[ri % COLORS.length]} strokeWidth="2" />)}
       </svg><div className="cr-observable-hint">{rows.length ? rows.map((_, i) => labels[i] ?? `Linear layer ${i + 1}`).join(" · ") : "Waiting for Linear-layer norm samples."}</div>

@@ -20,6 +20,7 @@ import { spawnConfigFor } from "./observableVizTrainerSpawn";
 import {
   isObservableVizFlowType,
   observableVizAllowsTensorVizChain,
+  observableVizHasTensorSeries,
   type ObservableVizVariant,
 } from "./observableVizVariant";
 import {
@@ -38,8 +39,45 @@ import { defaultTrainingVisualizationData } from "../components/nodes/trainingVi
 import { GENERATED_NODE_SPECS } from "../generated/generatedNodeSpecs";
 import { nodeRegistryTypesWithFamily } from "./nodeRegistrySpec";
 
-/** 类型集由 family 派生（Python definitions 持有真相，golden SHA 验证恒等）。
- * ai4science 5 层例外是有意保留的差异。后端经
+/** Connection probe vocabulary shared with the connection golden generator and
+ * the sidebar connectivity classifier: every (sourceHandle, targetHandle) pair
+ * the canvas cascade distinguishes, plus hostile unknown handles. */
+export const CONNECTION_PROBE_HANDLE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["tensor", "tensor"], ["tensor", "tensor_in"], ["tensor", "tensor_1"], ["tensor", "tensor_2"],
+  ["tensor", "tensor_return"], ["tensor", "tensor_list"], ["tensor", "stream"],
+  ["tensor_out", "tensor"], ["tensor_out", "tensor_in"], ["tensor_out", "tensor_1"],
+  ["out_tensor", "tensor"], ["out_tensor", "stream"], ["out_tensor", "observable_in"],
+  ["observable", "observable_in"], ["tensor", "distribution"], ["sample_tensor", "distribution"],
+  ["out_tensor_list", "tensor_list"], ["tensor_boundary", "tensor_in"], ["tensor_boundary", "tensor"],
+  ["tensor_list", "tensor_list"], ["selected_tensor", "tensor"],
+  ["dataset", "dataset"], ["train_dataset", "dataset"], ["test_dataset", "dataset"],
+  ["dataset", "dataset_a"], ["dataset", "dataset_b"], ["dataset", "train_dataset"],
+  ["train_dataset", "dataset_a"], ["test_dataset", "dataset_a"],
+  ["train_dataset", "dataset_b"], ["test_dataset", "dataset_b"],
+  ["model", "model"], ["model", "tensor"], ["tensor", "model"],
+  ["loss", "loss"], ["optimizer", "optimizer"], ["observables", "observables"],
+  ["observable", "observables"], ["observable_results", "tensor"], ["loss_results", "tensor_list"],
+  ["checkpoint", "model_checkpoint"], ["model_checkpoint", "model"],
+  ["initialization", "initialization"], ["init", "initialization"],
+  ["lr_schedule", "lr_schedule"], ["mup_lr_schedule", "mup_lr_schedule"],
+  ["lr_schedule", "optimizer_lr_schedule"], ["mup_lr_schedule", "optimizer_lr_schedule"],
+  ["mup_lr_schedule", "lr_schedule"],
+  ["sample_tensor", "train_input"], ["sample_tensor", "test_input"],
+  ["input_distribution", "distribution"], ["distribution", "input_distribution"],
+  ["transformed_tensor", "tensor"], ["principal_components", "tensor"], ["u", "tensor"], ["s", "tensor"], ["v", "tensor"],
+  ["table", "table"], ["table", "tensor_list"], ["env", "env"],
+  ["coords", "coords"], ["coords", "pred_coords"], ["coords", "true_coords"],
+  ["comment", "comment"], ["", ""], ["tensor", ""],
+  ["__unknown_src__", "tensor"], ["tensor", "__unknown_tgt__"], ["__unknown_src__", "__unknown_tgt__"],
+  // W5-P0 probes: strip source handles into model sockets + curve_annotator entry.
+  ["tensor_out", "model"], ["annotator", "from_viz"],
+  // W7-E1 probes: trainer batch_schedule, checkpoint ports, curve-series chain.
+  ["batch_schedule", "batch_schedule"], ["model", "checkpoint_sb"], ["model", "checkpoint_lb"],
+  ["stream", "stream"], ["out_tensor_list", "stream"], ["series", "curves"],
+];
+
+/** W3-C1a:类型集 family 派生(python defs 持真相;金标 sha 恒等验证)。
+ * ai4science 5 层例外——**C3a 裁决:有意分歧,保留**。后端经
  * ai4science_alias remap(pairwise_rbf→linear 等)组装,capability 集(13)
  * 不含它们是正确语义;canvas 连接面上它们以自身类型渲染 strip,故在此。 */
 const AI4_SCIENCE_STRIP_EXCEPTIONS = [
@@ -570,7 +608,12 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         }
         if (observableVizAllowsTensorVizChain(src) && s === "out_tensor") return true;
         if (src?.type === "dimension_permutator" && s === "tensor_out") return true;
-        if ((src?.type === "tensor_slicing" || src?.type === "elementwise_transform") && s === "tensor") {
+        if ((src?.type === "tensor_slicing" ||
+            src?.type === "elementwise_transform" ||
+            src?.type === "smoothing_curve" ||
+            src?.type === "derivative_curve" ||
+            src?.type === "moving_statistics") &&
+          s === "tensor") {
           return true;
         }
         if (atomicOrChainStripTensorSourceOut(src, s)) return true;
@@ -582,6 +625,10 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
       };
 
       if (targetNode && tensorVizTypes.has(String(targetNode.type))) {
+        if (th === "tensor_list") {
+          if (targetNode.type !== "tensor_viz_2d" && targetNode.type !== "tensor_viz_general") return false;
+          return sourceNode?.type === "tensor_selector" && sh === "tensor_list";
+        }
         if (th !== "tensor") return false;
         return analysisTensorFeedLikeTensorViz(sourceNode, sh);
       }
@@ -645,7 +692,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           (sourceNode?.type === "tensor_slicing" ||
             sourceNode?.type === "elementwise_transform" ||
             sourceNode?.type === "smoothing_curve" ||
-            sourceNode?.type === "derivative_curve") &&
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
           sh === "tensor"
         ) {
           return true;
@@ -681,7 +729,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           (sourceNode?.type === "tensor_slicing" ||
             sourceNode?.type === "elementwise_transform" ||
             sourceNode?.type === "smoothing_curve" ||
-            sourceNode?.type === "derivative_curve") &&
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
           sh === "tensor"
         ) {
           return true;
@@ -720,7 +769,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         if (th !== "tensor_list") return false;
         if (sourceNode?.type === "activation" && sh === "tensor_list") return true;
         if (sourceNode?.type === "training_visualization" && sh === "out_tensor_list") return true;
-        if (observableVizAllowsTensorVizChain(sourceNode) && sh === "out_tensor") return true;
+        if (sourceNode && observableVizHasTensorSeries(sourceNode) && sh === "out_tensor") return true;
+        if (tensorVizTypes.has(String(sourceNode?.type)) && sh === "out_tensor") return true;
         if (isDatasetTensorListSource(sourceNode, sh)) return true;
         if (
           isTrainerLikeCanvasType(sourceNode?.type) &&
@@ -749,7 +799,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           (sourceNode?.type === "tensor_slicing" ||
             sourceNode?.type === "elementwise_transform" ||
             sourceNode?.type === "smoothing_curve" ||
-            sourceNode?.type === "derivative_curve") &&
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
           sh === "tensor"
         ) {
           return true;
@@ -770,6 +821,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         if (sourceNode?.type === "training_visualization" && sh === "out_tensor_list") {
           return true;
         }
+        if (sourceNode && observableVizHasTensorSeries(sourceNode) && sh === "out_tensor") return true;
+        if (tensorVizTypes.has(String(sourceNode?.type)) && sh === "out_tensor") return true;
         if (isAnalysisTensorOutSource(sourceNode, sh)) return true;
         if (sourceNode?.type === "statistics" && sh === "tensor") {
           return true;
@@ -784,7 +837,12 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           return true;
         }
         if (sourceNode?.type === "dimension_permutator" && sh === "tensor_out") return true;
-        if ((sourceNode?.type === "tensor_slicing" || sourceNode?.type === "elementwise_transform") && sh === "tensor") return true;
+        if ((sourceNode?.type === "tensor_slicing" ||
+            sourceNode?.type === "elementwise_transform" ||
+            sourceNode?.type === "smoothing_curve" ||
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
+          sh === "tensor") return true;
         if (atomicOrChainStripTensorSourceOut(sourceNode, sh)) return true;
         if (fullModelTensorIoSource(sourceNode, sh)) return true;
         if (combinedModelModelModeOut(sourceNode, sh)) return true;
@@ -801,13 +859,20 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         if (sourceNode?.type === "training_visualization" && sh === "out_tensor_list") {
           return true;
         }
+        if (sourceNode && observableVizHasTensorSeries(sourceNode) && sh === "out_tensor") return true;
+        if (tensorVizTypes.has(String(sourceNode?.type)) && sh === "out_tensor") return true;
         if (isAnalysisTensorOutSource(sourceNode, sh)) return true;
         if (sourceNode?.type === "statistics" && sh === "tensor") return true;
         if (sourceNode?.type === "statistics2" && sh === "tensor") return true;
         if (isTensorMultiInputSource(sourceNode, sh)) return true;
         if (isTensorConstantOrGeneratedSource(sourceNode, sh)) return true;
         if (sourceNode?.type === "dimension_permutator" && sh === "tensor_out") return true;
-        if ((sourceNode?.type === "tensor_slicing" || sourceNode?.type === "elementwise_transform") && sh === "tensor") return true;
+        if ((sourceNode?.type === "tensor_slicing" ||
+            sourceNode?.type === "elementwise_transform" ||
+            sourceNode?.type === "smoothing_curve" ||
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
+          sh === "tensor") return true;
         if (atomicOrChainStripTensorSourceOut(sourceNode, sh)) return true;
         if (fullModelTensorIoSource(sourceNode, sh)) return true;
         if (combinedModelModelModeOut(sourceNode, sh)) return true;
@@ -845,7 +910,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           (sourceNode?.type === "tensor_slicing" ||
             sourceNode?.type === "elementwise_transform" ||
             sourceNode?.type === "smoothing_curve" ||
-            sourceNode?.type === "derivative_curve") &&
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
           sh === "tensor"
         ) {
           return true;
@@ -864,12 +930,14 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         targetNode?.type === "effective_rank" ||
         targetNode?.type === "series_endpoint_gap" ||
         targetNode?.type === "smoothing_curve" ||
-        targetNode?.type === "derivative_curve"
+        targetNode?.type === "derivative_curve" ||
+        targetNode?.type === "moving_statistics"
       ) {
         if (th !== "tensor") return false;
         if (sourceNode?.type === "tensor_selector" && isTensorSelectorSourceHandle(sh)) return true;
         if (sourceNode?.type === "training_visualization" && sh === "out_tensor_list") return true;
         if (observableVizAllowsTensorVizChain(sourceNode) && sh === "out_tensor") return true;
+        if (tensorVizTypes.has(String(sourceNode?.type)) && sh === "out_tensor") return true;
         if (isAnalysisTensorOutSource(sourceNode, sh)) return true;
         if (sourceNode?.type === "statistics" && sh === "tensor") return true;
         if (sourceNode?.type === "statistics2" && sh === "tensor") return true;
@@ -880,7 +948,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           (sourceNode?.type === "tensor_slicing" ||
             sourceNode?.type === "elementwise_transform" ||
             sourceNode?.type === "smoothing_curve" ||
-            sourceNode?.type === "derivative_curve") &&
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
           sh === "tensor"
         ) {
           return true;
@@ -1062,7 +1131,8 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
         sourceNode?.type === "effective_rank" ||
         sourceNode?.type === "series_endpoint_gap" ||
         sourceNode?.type === "smoothing_curve" ||
-        sourceNode?.type === "derivative_curve"
+        sourceNode?.type === "derivative_curve" ||
+        sourceNode?.type === "moving_statistics"
       ) {
         if (sh !== "tensor") return false;
         if ((targetNode?.type === "pca" || targetNode?.type === "svd") && th === "tensor") return true;
@@ -1257,7 +1327,12 @@ export function isValidCanvasConnection(edge: Connection | Edge, nodes: Node[], 
           return sourceNode.id ? tableVizTensorConnectable(nodes, edges, sourceNode.id) : false;
         }
         if (sourceNode?.type === "dimension_permutator" && sh === "tensor_out") return true;
-        if ((sourceNode?.type === "tensor_slicing" || sourceNode?.type === "elementwise_transform") && sh === "tensor") return true;
+        if ((sourceNode?.type === "tensor_slicing" ||
+            sourceNode?.type === "elementwise_transform" ||
+            sourceNode?.type === "smoothing_curve" ||
+            sourceNode?.type === "derivative_curve" ||
+            sourceNode?.type === "moving_statistics") &&
+          sh === "tensor") return true;
         if (atomicOrChainStripTensorSourceOut(sourceNode, sh)) return true;
         if (fullModelTensorIoSource(sourceNode, sh)) return true;
         if (combinedModelModelModeOut(sourceNode, sh)) return true;

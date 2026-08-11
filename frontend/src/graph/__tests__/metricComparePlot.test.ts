@@ -20,6 +20,20 @@ function source(title: string, plotXMode: "step" | "progress", metricId: string)
   };
 }
 
+function observableSource(title: string, yAxisLabel: string): ResolvedObservableVizCompare {
+  return {
+    nodeId: title,
+    title,
+    xKey: "step",
+    yAxisLabel,
+    canLogX: true,
+    canLogY: true,
+    logScaleX: false,
+    logScaleY: false,
+    plotSeries: [{ id: "score", label: "score", metricId: title, color: "#fff", points: [{ x: 1, xDisplay: "1", y: 0.2, rowId: "score" }, { x: 2, xDisplay: "2", y: 0.4, rowId: "score" }]}],
+  };
+}
+
 describe("metric comparison overlay", () => {
   it("keeps a common x mode and distinguishes source series", () => {
     const overlay = buildMetricCompareOverlay(source("A", "step", "train_loss"), source("B", "step", "train_loss"));
@@ -45,12 +59,44 @@ describe("metric comparison overlay", () => {
   });
 
   it("merges observable 1D series with a curve visualization", () => {
-    const observable: ResolvedObservableVizCompare = {
-      nodeId: "attention", title: "Attention relation score", xKey: "step", yAxisLabel: "attention score",
-      canLogX: true, canLogY: true, logScaleX: false, logScaleY: false,
-      plotSeries: [{ id: "score", label: "score", color: "#fff", points: [{ x: 1, xDisplay: "1", y: 0.2, rowId: "score" }, { x: 2, xDisplay: "2", y: 0.4, rowId: "score" }]}],
-    };
+    const observable = observableSource("Attention relation score", "attention score");
     const overlay = buildMetricCompareOverlay(source("Loss", "step", "train_loss"), observable);
     expect(overlay.series.map((series) => series.label)).toEqual(["Source A — Loss: train_loss", "Source B — Attention relation score: score"]);
+  });
+
+  it("assigns source A and B to explicit left/right axes", () => {
+    const overlay = buildMetricCompareOverlay(
+      source("A", "step", "train_loss"),
+      source("B", "step", "train_loss"),
+      "left",
+      "right",
+    );
+    expect(overlay.dualAxis).toBe(true);
+    expect(overlay.series[0]!.yAxis).toBe("left");
+    expect(overlay.series[1]!.yAxis).toBe("right");
+  });
+
+  it("labels each axis from the source sitting on it", () => {
+    const overlay = buildMetricCompareOverlay(
+      source("Loss", "step", "train_loss"),
+      observableSource("Accuracy", "accuracy"),
+      "left",
+      "right",
+    );
+    expect(overlay.dualAxis).toBe(true);
+    expect(overlay.yAxisLabel).toBe("value");
+    expect(overlay.yAxisLabelRight).toBe("accuracy");
+  });
+
+  it("auto-assigns the right axis for mixed metric classes", () => {
+    const overlay = buildMetricCompareOverlay(source("A", "step", "train_loss"), source("B", "step", "train_acc"));
+    expect(overlay.dualAxis).toBe(true);
+    expect(overlay.series[1]!.yAxis).toBe("right");
+  });
+
+  it("keeps a single axis when both sources stay on the left", () => {
+    const overlay = buildMetricCompareOverlay(source("A", "step", "train_loss"), source("B", "step", "test_loss"));
+    expect(overlay.dualAxis).toBe(false);
+    expect(overlay.series.every((series) => series.yAxis === "left")).toBe(true);
   });
 });

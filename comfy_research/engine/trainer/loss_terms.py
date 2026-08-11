@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from fastapi import HTTPException
 
-from comfy_research.engine.losses.loss_builders import TrainerTask
+from comfy_research.engine.losses.loss_builders import MultiSlotCrossEntropyLoss, TrainerTask
 from comfy_research.engine.node_builder_registry import registered_builder_node_types_for
 from comfy_research.engine.trainer.graph import _incoming_all
 from comfy_research.engine.trainer.model_helpers import _flatten_features_for_mse
@@ -36,6 +36,25 @@ def _trainer_primary_loss_tensor(
     if trainer_task == "mse_regression":
         return criterion(_flatten_features_for_mse(pred), _flatten_features_for_mse(y)) * loss_scale
     if trainer_task in ("cross_entropy_dense", "token_classification", "vision_classification"):
+        if isinstance(criterion, MultiSlotCrossEntropyLoss):
+            if pred.dim() != 3 or y.dim() != 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "MultiSlot cross-entropy expects pred [batch, K, vocab] and targets [batch, K]; "
+                        f"got pred {tuple(int(d) for d in pred.shape)} and targets {tuple(int(d) for d in y.shape)}."
+                    ),
+                )
+            if tuple(pred.shape[:2]) != tuple(y.shape):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "MultiSlot cross-entropy target [batch, K] must match pred [batch, K, vocab]; "
+                        f"got pred {tuple(int(d) for d in pred.shape)} and targets "
+                        f"{tuple(int(d) for d in y.shape)}."
+                    ),
+                )
+            return criterion(pred, y) * loss_scale
         if trainer_task == "token_classification" and pred.dim() == 3 and y.dim() == 2:
             if int(pred.shape[0]) != int(y.shape[0]) or int(pred.shape[1]) != int(y.shape[1]):
                 raise HTTPException(

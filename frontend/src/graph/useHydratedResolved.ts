@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
 import { fetchActivationTensorAsOk, hydrateResolved } from "./fetchActivationTensor";
-import type { Resolved, ResolvedLazyActivation, ResolvedNone, ResolvedOk } from "./resolveUpstreamTensor";
+import type {
+  Resolved,
+  ResolvedLazyActivation,
+  ResolvedNone,
+  ResolvedOk,
+  ResolvedTensorList,
+} from "./resolveUpstreamTensor";
 
 /**
  * For lazy server-backed tensors, fetches float32 data from the server; otherwise passes through.
  * @param refetchKey Increment (e.g. after a "Refresh" click) to re-fetch lazy tensors without changing the graph.
  */
 export function useHydratedResolved(resolved: Resolved, refetchKey = 0): {
-  display: ResolvedOk | ResolvedNone;
+  display: ResolvedOk | ResolvedNone | ResolvedTensorList;
   loading: boolean;
 } {
   const [ok, setOk] = useState<ResolvedOk | null>(null);
@@ -43,6 +49,9 @@ export function useHydratedResolved(resolved: Resolved, refetchKey = 0): {
     return { display: resolved, loading: false };
   }
   if (resolved.kind === "ok") {
+    return { display: resolved, loading: false };
+  }
+  if (resolved.kind === "tensor_list") {
     return { display: resolved, loading: false };
   }
   if (ok) {

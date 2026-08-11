@@ -5,8 +5,10 @@ export type ObservableVizUserNodeData = {
   pairedTrainerId?: string;
   /** Shown as “{observableName} viz” in the node header. */
   observableName?: string;
-  /** Short y-axis label (e.g. trainer scalar observables); defaults to “Value”. */
+  /** Short y-axis label (e.g. trainer scalar observables); defaults to "Value". */
   vizYAxisLabel?: string;
+  /** Human-readable warning for the observable (e.g. representation fallback), shown above the chart. */
+  warning?: string;
   lastSweepSummary?: string;
   valueHistory?: number[];
   /** Per-series rows (e.g. sink attention mass **All layers**); aligned with ``stepTicks``. */

@@ -40,12 +40,30 @@ REPRESENTATION_ALPHA_REQ = observable_def(
 
 @recorder_for(REPRESENTATION_ALPHA_REQ)
 def record(rec: "ObservableRecorder", on: "Node") -> None:
+    from comfy_research.engine.analysis.representation_specs import resolve_representation_for_log
     from comfy_research.engine.trainer.scalar import _scalar_bool, _scalar_str
 
     data: dict[str, Any] = on.data or {}
     representation_id = _scalar_str(data.get("representationId"), "0::output").strip()
+    representation_tensors = rec._representation_tensors_for_log()
+    representation, resolved_id = resolve_representation_for_log(
+        rec.model,
+        representation_tensors,
+        representation_id,
+    )
+    warnings = getattr(rec, "observable_warnings", None)
+    if resolved_id is not None and resolved_id != representation_id and warnings is not None:
+        warnings[on.id] = (
+            f"representationId {representation_id!r} not found on model; "
+            f"using {resolved_id!r}."
+        )
+    if representation is None and warnings is not None:
+        warnings[on.id] = (
+            f"representationId {representation_id!r} could not be resolved on "
+            f"{type(rec.model).__name__} (no representation tensors collected); recording NaN."
+        )
     _, eigenvalues = _rankme_and_eigenvalues(
-        rec._representation_tensors_for_log().get(representation_id),
+        representation,
         token_positions_as_samples=_scalar_bool(data.get("tokenPositionsAsSamples"), False),
     )
     positive = [float(x) for x in eigenvalues if math.isfinite(x) and x > 1e-12]

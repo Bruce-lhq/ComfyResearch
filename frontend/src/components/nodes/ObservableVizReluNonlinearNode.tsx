@@ -226,7 +226,7 @@ export function ObservableVizReluNonlinearNode({ id, data, selected }: NodeProps
     >
       <ObservableVizHeaderBar id={id} pairedObservableId={d.pairedObservableId} title={headerTitle} />
       <div className="cr-node__body cr-node__body--tviz">
-        <VizSocketsBar annotatorSource />
+        <VizSocketsBar annotatorSource compareSource />
         <div className="cr-tviz-chart-divider" aria-hidden />
         <div className="cr-tviz-chart-controls nodrag nopan">
           <label className="cr-tviz-check cr-tviz-check--train">

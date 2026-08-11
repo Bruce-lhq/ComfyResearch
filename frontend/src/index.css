@@ -2487,6 +2487,32 @@ html.cr-node-over-library-delete .cr-nodes-panel::after {
   }
 }
 
+.cr-nodes-panel__group {
+  margin: 0;
+  padding: 0.55rem 0.45rem 0.15rem;
+  list-style: none;
+}
+
+.cr-nodes-panel__group-label {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.cr-nodes-panel__group-label--muted {
+  color: color-mix(in srgb, var(--cr-text-muted) 55%, transparent);
+}
+
+.cr-nodes-panel__canvas-hint {
+  margin: 0.35rem 0.45rem 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--cr-text-muted);
+}
+
 .cr-nodes-panel__node-row .cr-nodes-panel__node-pill {
   flex: 1;
   margin: 0;
@@ -7864,6 +7890,16 @@ svg.react-flow__connectionline {
   align-items: flex-end;
   gap: 0.22rem;
   padding-right: 0;
+}
+
+.cr-tviz-chart-warning {
+  color: var(--cr-danger);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--cr-danger) 10%, transparent);
+  border-radius: 6px;
+  margin-bottom: 4px;
 }
 
 .cr-tviz-socket-pair {

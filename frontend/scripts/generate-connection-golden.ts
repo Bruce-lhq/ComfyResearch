@@ -14,6 +14,7 @@ import type { Connection, Edge, Node } from "@xyflow/react";
 
 import {
   applyCanvasConnection,
+  CONNECTION_PROBE_HANDLE_PAIRS as HANDLE_PAIRS,
   isValidCanvasConnection,
   planAutoConnectCanvas,
 } from "../src/graph/connectionRules";
@@ -21,43 +22,6 @@ import { NODE_SPEC_REGISTRY } from "../src/graph/nodeRegistrySpec";
 
 // bundle 后 import.meta.url 指向 node_modules/.cache——生成器恒从 frontend/ 运行,用 cwd。
 export const GOLDEN_PATH = resolve(process.cwd(), "src/graph/__tests__/__snapshots__/connectionGolden.json");
-
-/** (sh, th) 组合集:cascade 分支中实际出现的搭配 + hostile 未知口(recon 词汇表)。 */
-const HANDLE_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  ["tensor", "tensor"], ["tensor", "tensor_in"], ["tensor", "tensor_1"], ["tensor", "tensor_2"],
-  ["tensor", "tensor_return"], ["tensor", "tensor_list"], ["tensor", "stream"],
-  ["tensor_out", "tensor"], ["tensor_out", "tensor_in"], ["tensor_out", "tensor_1"],
-  ["out_tensor", "tensor"], ["out_tensor", "stream"], ["out_tensor", "observable_in"],
-  ["observable", "observable_in"], ["tensor", "distribution"], ["sample_tensor", "distribution"],
-  ["out_tensor_list", "tensor_list"], ["tensor_boundary", "tensor_in"], ["tensor_boundary", "tensor"],
-  ["tensor_list", "tensor_list"], ["selected_tensor", "tensor"],
-  ["dataset", "dataset"], ["train_dataset", "dataset"], ["test_dataset", "dataset"],
-  ["dataset", "dataset_a"], ["dataset", "dataset_b"], ["dataset", "train_dataset"],
-  ["train_dataset", "dataset_a"], ["test_dataset", "dataset_a"],
-  ["train_dataset", "dataset_b"], ["test_dataset", "dataset_b"],
-  ["model", "model"], ["model", "tensor"], ["tensor", "model"],
-  ["loss", "loss"], ["optimizer", "optimizer"], ["observables", "observables"],
-  ["observable", "observables"], ["observable_results", "tensor"], ["loss_results", "tensor_list"],
-  ["checkpoint", "model_checkpoint"], ["model_checkpoint", "model"],
-  ["initialization", "initialization"], ["init", "initialization"],
-  ["lr_schedule", "lr_schedule"], ["mup_lr_schedule", "mup_lr_schedule"],
-  ["lr_schedule", "optimizer_lr_schedule"], ["mup_lr_schedule", "optimizer_lr_schedule"],
-  ["mup_lr_schedule", "lr_schedule"],
-  ["sample_tensor", "train_input"], ["sample_tensor", "test_input"],
-  ["input_distribution", "distribution"], ["distribution", "input_distribution"],
-  ["transformed_tensor", "tensor"], ["principal_components", "tensor"], ["u", "tensor"], ["s", "tensor"], ["v", "tensor"],
-  ["table", "table"], ["table", "tensor_list"], ["env", "env"],
-  ["coords", "coords"], ["coords", "pred_coords"], ["coords", "true_coords"],
-  ["comment", "comment"], ["", ""], ["tensor", ""],
-  ["__unknown_src__", "tensor"], ["tensor", "__unknown_tgt__"], ["__unknown_src__", "__unknown_tgt__"],
-  // 扩针:strip 源 handle 接 model 口
-  //(fullModel/combined tensor-io 源)+ curve_annotator 入口。
-  ["tensor_out", "model"], ["annotator", "from_viz"],
-  // 扩针(旧规则基线):paper-repro 新口——trainer batch_schedule、
-  // 参数路径采样器双 checkpoint 口、curve-series 链(stream/series/curves)。
-  ["batch_schedule", "batch_schedule"], ["model", "checkpoint_sb"], ["model", "checkpoint_lb"],
-  ["stream", "stream"], ["out_tensor_list", "stream"], ["series", "curves"],
-];
 
 /** ioMode 敏感型(model/layer/combined 系)才展开 ioMode 变体。 */
 const IO_MODE_VALUES = ["model", "input-output"] as const;

@@ -17,7 +17,7 @@ def test_frontend_channel_holds_all_registered_defs() -> None:
     from comfy_research.tests.test_frontend_channel_ledger import REGISTERED_FRONTEND_TYPES
 
     assert registry.frontend_def_types() == frozenset(REGISTERED_FRONTEND_TYPES)
-    assert len(REGISTERED_FRONTEND_TYPES) == 51
+    assert len(REGISTERED_FRONTEND_TYPES) == 52
 
 
 def test_eight_registry_symmetry_holds() -> None:

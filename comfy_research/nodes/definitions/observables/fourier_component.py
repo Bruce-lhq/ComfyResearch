@@ -50,6 +50,12 @@ def record(rec: "ObservableRecorder", on: "Node") -> None:
 
     histories = rec.observable_metric_histories
     if rec.trainer_task != "mse_regression":
+        warnings = getattr(rec, "observable_warnings", None)
+        if warnings is not None:
+            warnings[on.id] = (
+                "observable_fourier_component only supports mse_regression tasks; "
+                "recording NaN on token/other tasks."
+            )
         histories[on.id].append(float("nan"))
         return
     data: dict[str, Any] = on.data or {}
@@ -63,6 +69,9 @@ def record(rec: "ObservableRecorder", on: "Node") -> None:
                 input_axis=_scalar_int(data.get("inputAxis"), 0),
                 output_index=_scalar_int(data.get("outputIndex"), 0),
             )
-    except Exception:
+    except Exception as exc:
+        warnings = getattr(rec, "observable_warnings", None)
+        if warnings is not None:
+            warnings[on.id] = f"fourier component measurement failed: {exc}"
         value = float("nan")
     histories[on.id].append(float(value))

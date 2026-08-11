@@ -101,10 +101,15 @@ class ObservableRecorder:
         self._rep_tensors_cache = None
         self._attn_layers_cache = False
         self.observable_rng_generators: dict[str, torch.Generator] = {}
+        # Per-observable human-readable warnings (e.g. representation fallbacks).
+        self.observable_warnings: dict[str, str] = {}
         # Observable state initialized before the training loop starts.
         self.attention_arrays_init: dict[str, np.ndarray] | None = None
         if isinstance(self.model, _EMBEDDING_OBSERVABLE_MODEL_TYPES):
-            self.attention_arrays_init = self.model.observable_numpy_arrays()
+            self.attention_arrays_init = {
+                k: (v.copy() if hasattr(v, "copy") else v)
+                for k, v in self.model.observable_numpy_arrays().items()
+            }
 
         self.kan_regs = [on for on in self.observable_nodes if on.type == NodeKind.kan_reg]
 

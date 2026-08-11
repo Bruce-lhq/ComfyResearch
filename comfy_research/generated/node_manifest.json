@@ -4530,6 +4530,53 @@
     ]
   },
   {
+    "type": "moving_statistics",
+    "label": "Moving statistics",
+    "category": "analysis",
+    "hint": "Rolling-window mean or standard deviation over a rank-1 (1D) tensor with configurable window, stride, and min periods; pass the result downstream as tensor.",
+    "resizable": true,
+    "hasDefaults": true,
+    "hasCodegen": false,
+    "fields": [
+      {
+        "kind": "enum",
+        "key": "statistic",
+        "label": "Statistic",
+        "defaultValue": "mean"
+      },
+      {
+        "kind": "int",
+        "key": "window",
+        "label": "Window",
+        "defaultValue": 10
+      },
+      {
+        "kind": "int",
+        "key": "stride",
+        "label": "Stride",
+        "defaultValue": 1
+      },
+      {
+        "kind": "int",
+        "key": "minPeriods",
+        "label": "Min Periods",
+        "defaultValue": 1
+      },
+      {
+        "kind": "boolean",
+        "key": "logScaleX",
+        "label": "Log Scale X",
+        "defaultValue": false
+      },
+      {
+        "kind": "boolean",
+        "key": "logScaleY",
+        "label": "Log Scale Y",
+        "defaultValue": false
+      }
+    ]
+  },
+  {
     "type": "mpp_spatiotemporal_model",
     "label": "MPP-style spatiotemporal ViT",
     "category": "model",
@@ -6548,12 +6595,6 @@
         "key": "inspectFormat",
         "label": "Inspect Format",
         "defaultValue": "id"
-      },
-      {
-        "kind": "float",
-        "key": "vocabCap",
-        "label": "Vocab Cap",
-        "defaultValue": 256
       },
       {
         "kind": "enum",
@@ -8746,12 +8787,6 @@
         "key": "inspectFormat",
         "label": "Inspect Format",
         "defaultValue": "id"
-      },
-      {
-        "kind": "float",
-        "key": "vocabCap",
-        "label": "Vocab Cap",
-        "defaultValue": 256
       },
       {
         "kind": "enum",

@@ -106,6 +106,80 @@ def binned_information_pair(
     return _entropy_bits(ids), _mutual_information_bits(ids, labels)
 
 
+def _quantize_column(values: np.ndarray, *, bins: int, strategy: str) -> np.ndarray:
+    """Bin one feature column with the selected deterministic strategy."""
+    v = np.asarray(values, dtype=np.float64)
+    n_bins = max(2, int(bins))
+    if strategy == "idnns_equal_points":
+        anchors = np.linspace(-1.0, 1.0, n_bins, dtype=np.float32)
+        q = np.digitize(np.clip(v, -1.0, 1.0), anchors).astype(np.int16) - 1
+        return np.clip(q, 0, n_bins - 1)
+    if strategy == "uniform_intervals":
+        clipped = np.clip(v, -1.0, 1.0)
+        q = np.floor((clipped + 1.0) * (n_bins / 2.0)).astype(np.int16)
+        return np.clip(q, 0, n_bins - 1)
+    if strategy == "adaptive_minmax":
+        lo = float(np.min(v))
+        hi = float(np.max(v))
+        if hi <= lo:
+            return np.zeros_like(v, dtype=np.int16)
+        q = np.floor((v - lo) * (n_bins / (hi - lo))).astype(np.int16)
+        return np.clip(q, 0, n_bins - 1)
+    if strategy == "saxe_fixed_width_0_07":
+        q = np.floor(v / 0.07).astype(np.int64)
+        if q.size:
+            _, q = np.unique(q, return_inverse=True)
+        return q.astype(np.int64)
+    raise ValueError(f"unknown information-plane binning strategy: {strategy}")
+
+
+def _row_codes(rows: np.ndarray) -> np.ndarray:
+    """Integer codes for rows of an (n, d) array (unique rows get unique codes)."""
+    arr = np.asarray(rows)
+    if arr.ndim != 2:
+        arr = arr.reshape(arr.shape[0], -1)
+    _, codes = np.unique(arr, axis=0, return_inverse=True)
+    return codes.astype(np.int64)
+
+
+def _featurewise_information_pair(
+    values: np.ndarray,
+    labels: np.ndarray,
+    input_codes: np.ndarray,
+    *,
+    bins: int,
+    strategy: str,
+    max_features: int,
+) -> tuple[float, float]:
+    """Return (I(X;T), I(T;Y)) estimated per feature column and averaged.
+
+    Per-column binning avoids the all-rows-unique row-code collapse that made
+    both coordinates constant on high-dimensional token outputs (B-007).
+    """
+    values = np.asarray(values, dtype=np.float64)
+    if values.ndim != 2 or values.shape[0] == 0:
+        return float("nan"), float("nan")
+    if not np.isfinite(values).all():
+        return float("nan"), float("nan")
+    n = values.shape[0]
+    label_ids = np.asarray(labels).reshape(-1)
+    if label_ids.size != n or input_codes.size != n:
+        return float("nan"), float("nan")
+    features = values[:, :max_features] if values.shape[1] > max_features else values
+    ix_vals: list[float] = []
+    iy_vals: list[float] = []
+    for col in range(features.shape[1]):
+        quantized = _quantize_column(features[:, col], bins=bins, strategy=strategy)
+        ix = _mutual_information_bits(quantized, input_codes)
+        iy = _mutual_information_bits(quantized, label_ids)
+        if math.isfinite(ix) and math.isfinite(iy):
+            ix_vals.append(ix)
+            iy_vals.append(iy)
+    if not ix_vals:
+        return float("nan"), float("nan")
+    return float(np.mean(ix_vals)), float(np.mean(iy_vals))
+
+
 def information_plane_for_model(
     model: nn.Module,
     x: torch.Tensor,
@@ -115,12 +189,18 @@ def information_plane_for_model(
     include_output: bool = True,
     binning: str = "uniform_intervals",
     output_mapping: str = "tanh",
+    max_features: int = 8,
 ) -> list[list[float]]:
-    """Return one binned information point per activation (and optional output).
+    """Return one binned information point per captured layer (and optional output).
 
-    The forward hooks are temporary and model training mode is restored even if
-    the forward pass fails.  Conversion to CPU happens only after all bounded
-    samples have been collected by the caller.
+    The first coordinate is a real ``I(X;T)`` estimate (mutual information
+    between the binned input encoding and the representation); the second is
+    ``I(T;Y)`` (B-007).  Hooks prefer ``nn`` activation modules; models that
+    only use functional activations (RWKV/hyena/transformer) fall back to
+    capturing every module output.  High-dimensional activations are measured
+    per feature column and aggregated so both coordinates vary with training
+    instead of degenerating to constants.  Training mode is restored even if
+    the forward pass fails.
     """
     captured: list[torch.Tensor] = []
     handles: list[torch.utils.hooks.RemovableHandle] = []
@@ -130,18 +210,32 @@ def information_plane_for_model(
         if isinstance(output, torch.Tensor) and output.ndim >= 1 and output.shape[0] == x.shape[0]:
             captured.append(output.detach())
 
-    for module in model.modules():
-        if isinstance(module, activation_types):
-            handles.append(module.register_forward_hook(hook))
     was_training = model.training
-    try:
-        model.eval()
-        with torch.no_grad():
-            output = _forward_reg(model, x)
-    finally:
-        for handle in handles:
-            handle.remove()
-        model.train(was_training)
+
+    def _run() -> torch.Tensor | None:
+        try:
+            model.eval()
+            with torch.no_grad():
+                return _forward_reg(model, x)
+        finally:
+            for handle in handles:
+                handle.remove()
+            model.train(was_training)
+
+    # Preferred: nn activation modules define the semantic "layers".
+    for name, module in model.named_modules():
+        if name and isinstance(module, activation_types):
+            handles.append(module.register_forward_hook(hook))
+    output = _run()
+    # B-007: functional-activation models (RWKV/hyena) expose no nn activation
+    # modules ? capture every module output instead.
+    if not captured:
+        handles = []
+        for name, module in model.named_modules():
+            if name:
+                handles.append(module.register_forward_hook(hook))
+        output = _run()
+
     if include_output and isinstance(output, torch.Tensor) and output.ndim >= 1:
         if output_mapping == "probability":
             if output.ndim >= 2 and int(output.shape[-1]) > 1:
@@ -159,11 +253,47 @@ def information_plane_for_model(
             raise ValueError(f"unknown information-plane output mapping: {output_mapping}")
         captured.append(output.detach())
 
+    x_np = x.detach().cpu().numpy()
     labels_np = labels.detach().cpu().numpy()
     points: list[list[float]] = []
     for value in captured:
-        ix, iy = binned_information_pair(
-            value.detach().cpu().numpy(), labels_np, bins=bins, strategy=binning
+        arr = value.detach().cpu().numpy()
+        per_position = arr.ndim >= 3
+        if per_position:
+            b, t = int(arr.shape[0]), int(arr.shape[1])
+            arr = arr.reshape(b * t, -1)
+        elif arr.ndim == 1:
+            arr = arr[:, None]
+        elif arr.ndim != 2:
+            continue
+        n = int(arr.shape[0])
+        if n == 0:
+            continue
+        if per_position:
+            if x_np.ndim >= 2 and x_np.shape[0] == b and x_np.shape[1] == t:
+                inputs_np = x_np.reshape(n, -1)
+            elif x_np.shape[0] == b:
+                inputs_np = np.repeat(x_np.reshape(b, -1), t, axis=0)
+            else:
+                inputs_np = x_np.reshape(n, -1)
+            if labels_np.size == n:
+                labels_n = labels_np.reshape(-1)
+            elif labels_np.size == b:
+                labels_n = np.repeat(labels_np.reshape(-1), t)
+            else:
+                continue
+        else:
+            inputs_np = x_np
+            labels_n = labels_np.reshape(-1)
+        if labels_n.size != n:
+            continue
+        ix, iy = _featurewise_information_pair(
+            arr,
+            labels_n,
+            _row_codes(inputs_np),
+            bins=bins,
+            strategy=binning,
+            max_features=max_features,
         )
         if math.isfinite(ix) and math.isfinite(iy):
             points.append([float(ix), float(iy)])

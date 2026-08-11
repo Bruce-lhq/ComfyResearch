@@ -57,29 +57,54 @@ def _as_symmetric_float_matrix(mat: torch.Tensor) -> torch.Tensor:
 
 def _eigh_psd_with_fallback(mat: torch.Tensor, eps: float) -> tuple[torch.Tensor, torch.Tensor]:
     work = _as_symmetric_float_matrix(mat)
+    if not bool(torch.isfinite(work).all()):
+        raise ValueError(
+            "Preconditioner eigensystem received a non-finite matrix; refusing to continue silently "
+            f"(shape {tuple(work.shape)})."
+        )
     jitter = max(float(eps), float(torch.finfo(work.dtype).eps))
     eye = torch.eye(work.shape[0], dtype=work.dtype, device=work.device)
     last_exc: RuntimeError | None = None
+    last_finite_exc: ValueError | None = None
+
+    def _checked(
+        evals: torch.Tensor, evecs: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        nonlocal last_finite_exc
+        if not (bool(torch.isfinite(evals).all()) and bool(torch.isfinite(evecs).all())):
+            last_finite_exc = ValueError(
+                "Preconditioner eigensystem produced non-finite values; refusing to continue silently."
+            )
+            return None
+        return evals, evecs
+
     for scale in _EIGH_JITTER_SCALES:
         try:
-            return torch.linalg.eigh(work + (jitter * scale) * eye)
+            result = _checked(*torch.linalg.eigh(work + (jitter * scale) * eye))
+            if result is not None:
+                return result
         except RuntimeError as exc:
             last_exc = exc
 
-    if work.device.type != "cpu":
-        # Low-rank Shampoo statistics can make CUDA eigh fail; retry in CPU double.
-        cpu_work = work.detach().cpu().double()
-        cpu_jitter = max(float(eps), float(torch.finfo(cpu_work.dtype).eps))
-        cpu_eye = torch.eye(cpu_work.shape[0], dtype=cpu_work.dtype, device=cpu_work.device)
-        for scale in _EIGH_JITTER_SCALES:
-            try:
-                evals, evecs = torch.linalg.eigh(cpu_work + (cpu_jitter * scale) * cpu_eye)
-                return evals.to(device=work.device, dtype=work.dtype), evecs.to(
-                    device=work.device, dtype=work.dtype
-                )
-            except RuntimeError as exc:
-                last_exc = exc
+    # Low-rank Shampoo statistics can make eigh fail on any device; retry in CPU
+    # double precision (B-004).
+    cpu_work = work.detach().cpu().double()
+    cpu_jitter = max(float(eps), float(torch.finfo(cpu_work.dtype).eps))
+    cpu_eye = torch.eye(cpu_work.shape[0], dtype=cpu_work.dtype, device=cpu_work.device)
+    for scale in _EIGH_JITTER_SCALES:
+        try:
+            evals, evecs = torch.linalg.eigh(cpu_work + (cpu_jitter * scale) * cpu_eye)
+            result = _checked(
+                evals.to(device=work.device, dtype=work.dtype),
+                evecs.to(device=work.device, dtype=work.dtype),
+            )
+            if result is not None:
+                return result
+        except RuntimeError as exc:
+            last_exc = exc
 
+    if last_finite_exc is not None:
+        raise last_finite_exc
     assert last_exc is not None
     raise last_exc
 

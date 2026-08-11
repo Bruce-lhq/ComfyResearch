@@ -127,7 +127,7 @@ export const EXTERNAL_TOY_LM_NOTEBOOK_IMPL_BLOCK = [
   "        ctx = max(1, scalar_int(data.get(\"contextLength\"), 64))",
   "        seq_doc = max(ctx + 5, scalar_int(data.get(\"seqLen\"), 256))",
   "        stride = max(1, scalar_int(data.get(\"stride\"), ctx + 1))",
-  "        vocab_cap = max(2, scalar_int(data.get(\"vocabCap\"), 256))",
+  "        vocab_cap = max(2, scalar_int(data.get(\"vocabSize\"), 256))",
   "        tok_mode = scalar_str(data.get(\"tokenizerMode\"), \"char\")",
   "        data_src = scalar_str(data.get(\"dataSource\"), \"synthetic\").strip().lower()",
   "    ",

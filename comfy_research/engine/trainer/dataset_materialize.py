@@ -874,7 +874,7 @@ def _materialize_toy_language(
         2,
         _scalar_int(
             dd_train.get("vocabSize"),
-            _scalar_int(dd_train.get("vocabCap"), 256 if ds_train.type in _TEXT_HEAVY_TOY_LANGUAGE_DATASET_TYPES else 32),
+            256 if ds_train.type in _TEXT_HEAVY_TOY_LANGUAGE_DATASET_TYPES else 32,
         ),
     )
     ctx_len_ds = max(1, _scalar_int(dd_train.get("contextLength"), 64 if ds_train.type in _TEXT_HEAVY_TOY_LANGUAGE_DATASET_TYPES else 16))
@@ -885,16 +885,13 @@ def _materialize_toy_language(
     if test_size > 0:
         vocab_te = max(
             2,
-            _scalar_int(
-                dd_test.get("vocabSize"),
-                _scalar_int(dd_test.get("vocabCap"), vocab_ds),
-            ),
+            _scalar_int(dd_test.get("vocabSize"), vocab_ds),
         )
         ctx_te = max(1, _scalar_int(dd_test.get("contextLength"), ctx_len_ds))
         if vocab_te != vocab_ds or ctx_te != ctx_len_ds:
             raise HTTPException(
                 status_code=400,
-                detail="Toy language dataset test node must match train vocabSize/vocabCap and contextLength.",
+                detail="Toy language dataset test node must match train vocabSize and contextLength.",
             )
         x_test_np = x_te_np
         y_test_np = y_te_np

@@ -1,4 +1,4 @@
-import { useReactFlow, useStore, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useReactFlow, useStore, type Node, type NodeProps } from "@xyflow/react";
 import { useCallback, useMemo, useState } from "react";
 import { ComfyIntField } from "./comfyNumberFields";
 import {
@@ -17,6 +17,7 @@ import {
   resolvedTensorEqual,
   type FlowEdge,
   type Resolved,
+  type ResolvedTensorListRow,
 } from "../../graph/resolveUpstreamTensor";
 import { useHydratedResolved } from "../../graph/useHydratedResolved";
 import { TensorVizObsAddStrip } from "./TensorVizObsAddStrip";
@@ -52,18 +53,25 @@ function patchTensorVizData(
 }
 
 function resolveTensor(nodes: Node[], edges: FlowEdge[], vizId: string): Resolved {
+  const listEdge = edges.find((e) => e.target === vizId && (e.targetHandle ?? "") === "tensor_list");
+  if (listEdge?.source) {
+    return resolveUpstreamTensor(nodes, edges, vizId, "tensor_list");
+  }
   return resolveUpstreamTensor(nodes, edges, vizId, "tensor");
 }
 
-function ordered1DValues(values: number[], sort: TensorViz1dLineSort): number[] {
-  if (sort === "original") return values;
-  const c = [...values];
-  if (sort === "ascending") {
-    c.sort((a, b) => a - b);
-    return c;
-  }
-  c.sort((a, b) => b - a);
-  return c;
+function ordered1DValues(
+  values: number[],
+  sort: TensorViz1dLineSort,
+  xTicks?: number[],
+): { values: number[]; xTicks?: number[] } {
+  if (sort === "original") return { values, xTicks };
+  const idx = values.map((_, i) => i);
+  idx.sort((a, b) => (sort === "ascending" ? values[a]! - values[b]! : values[b]! - values[a]!));
+  return {
+    values: idx.map((i) => values[i]!),
+    ...(xTicks && xTicks.length === values.length ? { xTicks: idx.map((i) => xTicks[i]!) } : {}),
+  };
 }
 
 function histogramCounts(
@@ -292,13 +300,22 @@ function Viz1DBar({ values }: { values: number[] }) {
   );
 }
 
-function Viz1DLine({ values, scatterOnly = false }: { values: number[]; scatterOnly?: boolean }) {
+function Viz1DLine({
+  values,
+  scatterOnly = false,
+  xKeys,
+}: {
+  values: number[];
+  scatterOnly?: boolean;
+  xKeys?: number[];
+}) {
   const n = values.length;
   const vmin = Math.min(...values);
   const vmax = Math.max(...values);
   const plot: PlotRect = { left: 34, top: 6, w: CHART_W - 34 - 10, h: CHART_H_1D - 6 - 24 };
-  const xRawMin = 0;
-  const xRawMax = Math.max(1, n - 1);
+  const rawX = xKeys && xKeys.length === n ? xKeys : values.map((_, i) => i);
+  const xRawMin = Math.min(...rawX);
+  const xRawMax = Math.max(1, ...rawX);
   const xPad = padLinearDomain(xRawMin, xRawMax, TVIZ_1D_DOMAIN_PAD_X);
   const yPad = padLinearDomain(vmin, vmax, TVIZ_1D_DOMAIN_PAD_Y);
   const baseBounds = { minX: xPad.min, maxX: xPad.max, minY: yPad.min, maxY: yPad.max };
@@ -328,7 +345,7 @@ function Viz1DLine({ values, scatterOnly = false }: { values: number[]; scatterO
   const spanX = viewBounds.maxX - viewBounds.minX || 1;
   const spanY = viewBounds.maxY - viewBounds.minY || 1;
   for (let i = 0; i < n; i++) {
-    const x = plot.left + ((i - viewBounds.minX) / spanX) * plot.w;
+    const x = plot.left + ((rawX[i]! - viewBounds.minX) / spanX) * plot.w;
     const t = (values[i]! - viewBounds.minY) / spanY;
     const y = plot.top + plot.h - t * plot.h;
     coords.push({ x, y });
@@ -595,6 +612,67 @@ function ScatterAxesFrame({
         );
       })}
     </g>
+  );
+}
+
+function Viz2DLines({ rows }: { rows: ResolvedTensorListRow[] }) {
+  const plot: PlotRect = { left: 36, top: 8, w: CHART_W - 36 - 10, h: SCATTER_CHART_H - 8 - 26 };
+  const series = rows.map((row) => ({
+    label: row.label,
+    points: row.values.map((y, i) => ({ x: row.xTicks?.[i] ?? i, y })),
+  }));
+  const xs = series.flatMap((s) => s.points.map((p) => p.x));
+  const ys = series.flatMap((s) => s.points.map((p) => p.y));
+  if (ys.length === 0) return <p className="cr-tensor-viz__hint">No values in the tensor list.</p>;
+  const xPad = padLinearDomain(Math.min(...xs), Math.max(...xs), 0.055);
+  const yPad = padLinearDomain(Math.min(...ys), Math.max(...ys), 0.055);
+  const xTicks = generateTicks(xPad.min, xPad.max, 4);
+  const yTicks = generateTicks(yPad.min, yPad.max, 4);
+  const colors = ["var(--cr-chart-1)", "var(--cr-chart-2)", "var(--cr-chart-3)", "var(--cr-chart-4)", "var(--cr-chart-9)", "var(--cr-chart-6)"];
+  return (
+    <div className="cr-sweep-viz__plot-wrap">
+      <svg
+        className="cr-tensor-viz__svg nodrag nopan"
+        width={CHART_W}
+        height={SCATTER_CHART_H}
+        viewBox={`0 0 ${CHART_W} ${SCATTER_CHART_H}`}
+        aria-label="Tensor list multi-line chart"
+      >
+        {series.map((s, si) => (
+          <polyline
+            key={si}
+            fill="none"
+            stroke={colors[si % colors.length]!}
+            strokeWidth={1.8}
+            points={s.points
+              .map((p) => `${mapXLinear(plot, p.x, xPad.min, xPad.max)},${mapYLinear(plot, p.y, yPad.min, yPad.max)}`)
+              .join(" ")}
+          />
+        ))}
+        <ScatterAxesFrame
+          plot={plot}
+          xTicks={xTicks}
+          yTicks={yTicks}
+          xMin={xPad.min}
+          xMax={xPad.max}
+          yMin={yPad.min}
+          yMax={yPad.max}
+          formatTick={formatNumberTick}
+        />
+      </svg>
+      {series.length > 1 ? (
+        <div
+          className="nodrag nopan"
+          style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: 10, padding: "2px 4px" }}
+        >
+          {series.map((s, si) => (
+            <span key={si} style={{ color: colors[si % colors.length] }}>
+              {s.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -880,6 +958,12 @@ export function TensorVizNode({ id, selected, data, vizMode }: NodeProps & { viz
       }
       return <p className="cr-tensor-viz__hint">{display.detail}</p>;
     }
+    if (display.kind === "tensor_list") {
+      if (display.rows.length === 0) {
+        return <p className="cr-tensor-viz__hint">No series in the tensor list.</p>;
+      }
+      return <Viz2DLines rows={display.rows} />;
+    }
     const { rank, shape, values, sourceSummary } = display;
 
     if (vizMode === "1d" && rank !== 1) {
@@ -925,16 +1009,17 @@ export function TensorVizNode({ id, selected, data, vizMode }: NodeProps & { viz
 
     if (rank === 1) {
       const style = d.plot1dStyle;
-      const lineSeries = ordered1DValues(values, d.plot1dLineSort);
+      const ordered = ordered1DValues(values, d.plot1dLineSort, display.xTicks);
+      const lineSeries = ordered.values;
       let chart: ReactNode;
       if (style === "bar") {
         chart = <Viz1DBar values={values} />;
       } else if (style === "dist") {
         chart = <Viz1DHistogram values={values} bins={d.histBins} />;
       } else if (style === "scatter") {
-        chart = <Viz1DLine values={lineSeries} scatterOnly />;
+        chart = <Viz1DLine values={lineSeries} xKeys={ordered.xTicks} scatterOnly />;
       } else {
-        chart = <Viz1DLine values={lineSeries} />;
+        chart = <Viz1DLine values={lineSeries} xKeys={ordered.xTicks} />;
       }
 
       return (
@@ -1020,7 +1105,18 @@ export function TensorVizNode({ id, selected, data, vizMode }: NodeProps & { viz
           </p>
         ) : null}
         <div className="cr-tensor-viz__io nodrag nopan" aria-label="Tensor viz input and outputs">
-          <VizSocketsBar compareSource={vizMode === "1d"} />
+          <VizSocketsBar compareSource={show1dControls} />
+        {(vizMode === "2d" || vizMode === "general") ? (
+          <div className="cr-tviz-socket-row">
+            <Handle
+              type="target"
+              position={Position.Left}
+              id="tensor_list"
+              className="cr-handle-target cr-handle-target--tviz cr-handle-target--tviz-socket"
+            />
+            <span className="cr-tviz-socket-label">tensor list</span>
+          </div>
+        ) : null}
         </div>
         {show1dControls ? (
           <div className="cr-tensor-viz__controls nodrag nopan">

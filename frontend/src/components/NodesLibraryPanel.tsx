@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type CSSProperties,
 } from "react";
-import { useReactFlow } from "@xyflow/react";
+import { useNodes, useReactFlow, type Node } from "@xyflow/react";
 import { DeletingBusyOverlay } from "./DeletingBusyOverlay";
 import type { ResearchGraphActions } from "../context/ResearchGraphContext";
 import { useResearchGraph } from "../context/ResearchGraphContext";
@@ -32,6 +32,8 @@ import { useCombinedModelLibraryTemplates } from "../hooks/useCombinedModelLibra
 import { useNodeCategories, type CatalogNodeChild, type CatalogNodeCategory } from "../hooks/useNodeCategories";
 import { GENERATED_NODE_SPECS } from "../generated/generatedNodeSpecs";
 import { nodeRegistryDefaults } from "../graph/nodeRegistrySpec";
+import { canNodeTypeConnectToAny } from "../graph/canvasConnectivity";
+import { readNodeCanvasIoMode } from "../graph/nodeCanvasIoMode";
 import { appendResearchNode } from "../graph/nodeInstanceTitle";
 import {
   beginLibraryNodeDrag,
@@ -570,6 +572,13 @@ export function NodesLibraryPanel() {
   const categories = useNodeCategories();
   const combinedModelEntries = useCombinedModelLibraryTemplates();
   const { screenToFlowPosition } = useReactFlow();
+  /** Live canvas nodes; library drag drafts are excluded so the classification
+   * does not churn while a node is being dragged. */
+  const canvasNodes = useNodes().filter(
+    (n) => !String(n.className ?? "").includes("cr-library-drag-draft"),
+  );
+  const canvasNodesRef = useRef<Node[]>(canvasNodes);
+  canvasNodesRef.current = canvasNodes;
 
   useEffect(
     () => () => endLibraryNodeDrag(),
@@ -822,6 +831,86 @@ export function NodesLibraryPanel() {
   const selectedLibraryCategory =
     libraryCategoryId === null ? null : categories.find((c) => c.id === libraryCategoryId) ?? null;
 
+  /** Canvas composition signature (ids + types + ioModes), ignoring position
+   * and drag churn so the classification only recomputes when it can change. */
+  const canvasComposition = useMemo(
+    () =>
+      canvasNodes
+        .map(
+          (n) =>
+            `${n.id}:${String(n.type ?? "")}:${readNodeCanvasIoMode(
+              (n.data ?? {}) as Record<string, unknown> | undefined,
+            )}`,
+        )
+        .sort()
+        .join("|"),
+    [canvasNodes],
+  );
+
+  /** Connectable catalog types given the nodes currently on the canvas; null
+   * when the canvas is empty (every type can start a graph). */
+  const connectableTypes = useMemo(() => {
+    const nodes = canvasNodesRef.current;
+    if (nodes.length === 0) return null;
+    const out = new Set<string>();
+    for (const nodeType of Object.keys(GENERATED_NODE_SPECS)) {
+      if (canNodeTypeConnectToAny(nodeType, nodes)) out.add(nodeType);
+    }
+    return out;
+  }, [canvasComposition]);
+
+  const renderChildRow = (ch: NodeChild, c: NodeCategory) => (
+    <LibraryChildListItem
+      key={
+        ch.user_observable_id
+          ? `uo-${ch.user_observable_id}`
+          : ch.user_linear_dataset_id
+            ? `uld-${ch.user_linear_dataset_id}`
+            : ch.user_symbolic_func_dataset_id
+              ? `usfd-${ch.user_symbolic_func_dataset_id}`
+              : `${c.id}-${ch.id}-${ch.label}`
+      }
+      ch={ch}
+      graph={graph}
+      onLibraryPointerDown={onLibraryPointerDown}
+      onUserObsDragStart={onUserObsDragStart}
+      onUserLinearDatasetDragStart={onUserLinearDatasetDragStart}
+      onUserSymbolicFuncDatasetDragStart={onUserSymbolicFuncDatasetDragStart}
+      onDeleteUserObservable={onDeleteUserObservable}
+      onDeleteUserLinearDataset={onDeleteUserLinearDataset}
+      onDeleteUserSymbolicFuncDataset={onDeleteUserSymbolicFuncDataset}
+    />
+  );
+
+  /** Split a category's children into connectable / not-connectable groups
+   * relative to the current canvas, rendered as two labelled sub-lists. */
+  const renderChildrenList = (c: NodeCategory, children: NodeChild[]) => {
+    if (connectableTypes == null) return children.map((ch) => renderChildRow(ch, c));
+    const connectable: NodeChild[] = [];
+    const notConnectable: NodeChild[] = [];
+    for (const ch of children) {
+      (connectableTypes.has(ch.id) ? connectable : notConnectable).push(ch);
+    }
+    return (
+      <>
+        <li className="cr-nodes-panel__group">
+          <span className="cr-nodes-panel__group-label">Connectable · {connectable.length}</span>
+        </li>
+        {connectable.map((ch) => renderChildRow(ch, c))}
+        {notConnectable.length > 0 && (
+          <>
+            <li className="cr-nodes-panel__group">
+              <span className="cr-nodes-panel__group-label cr-nodes-panel__group-label--muted">
+                Not connectable · {notConnectable.length}
+              </span>
+            </li>
+            {notConnectable.map((ch) => renderChildRow(ch, c))}
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <>
     <aside className="cr-nodes-panel" aria-label="Node library">
@@ -919,6 +1008,12 @@ export function NodesLibraryPanel() {
                     </button>
                   ))}
                 </div>
+                {connectableTypes == null && categories.length > 0 ? (
+                  <p className="cr-nodes-panel__canvas-hint">
+                    Canvas is empty — every node can be placed. Groups appear once a node is on the
+                    canvas.
+                  </p>
+                ) : null}
                 {libraryCategoryId === null ? (
                   <ul className="cr-nodes-panel__tree">
                     {filtered.map((c) => (
@@ -926,28 +1021,7 @@ export function NodesLibraryPanel() {
                         <span className="cr-nodes-panel__folder">{c.label}</span>
                         {c.children?.length || (c.id === "model" && combinedFiltered.length > 0) ? (
                           <ul>
-                            {(c.children ?? []).map((ch) => (
-                              <LibraryChildListItem
-                                key={
-                                  ch.user_observable_id
-                                    ? `uo-${ch.user_observable_id}`
-                                    : ch.user_linear_dataset_id
-                                      ? `uld-${ch.user_linear_dataset_id}`
-                                      : ch.user_symbolic_func_dataset_id
-                                        ? `usfd-${ch.user_symbolic_func_dataset_id}`
-                                        : `${c.id}-${ch.id}-${ch.label}`
-                                }
-                                ch={ch}
-                                graph={graph}
-                                onLibraryPointerDown={onLibraryPointerDown}
-                                onUserObsDragStart={onUserObsDragStart}
-                                onUserLinearDatasetDragStart={onUserLinearDatasetDragStart}
-                                onUserSymbolicFuncDatasetDragStart={onUserSymbolicFuncDatasetDragStart}
-                                onDeleteUserObservable={onDeleteUserObservable}
-                                onDeleteUserLinearDataset={onDeleteUserLinearDataset}
-                                onDeleteUserSymbolicFuncDataset={onDeleteUserSymbolicFuncDataset}
-                              />
-                            ))}
+                            {renderChildrenList(c, c.children ?? [])}
                             {c.id === "model" && combinedFiltered.length > 0
                               ? combinedFiltered.map((row) => (
                                   <li key={`saved-cm-${row.entry.id}`}>
@@ -974,28 +1048,7 @@ export function NodesLibraryPanel() {
                     }
                     return (
                       <ul className="cr-nodes-panel__tree">
-                        {children.map((ch) => (
-                          <LibraryChildListItem
-                            key={
-                              ch.user_observable_id
-                                ? `uo-${ch.user_observable_id}`
-                                : ch.user_linear_dataset_id
-                                  ? `uld-${ch.user_linear_dataset_id}`
-                                  : ch.user_symbolic_func_dataset_id
-                                    ? `usfd-${ch.user_symbolic_func_dataset_id}`
-                                    : `${c.id}-${ch.id}-${ch.label}`
-                            }
-                            ch={ch}
-                            graph={graph}
-                            onLibraryPointerDown={onLibraryPointerDown}
-                            onUserObsDragStart={onUserObsDragStart}
-                            onUserLinearDatasetDragStart={onUserLinearDatasetDragStart}
-                            onUserSymbolicFuncDatasetDragStart={onUserSymbolicFuncDatasetDragStart}
-                            onDeleteUserObservable={onDeleteUserObservable}
-                            onDeleteUserLinearDataset={onDeleteUserLinearDataset}
-                            onDeleteUserSymbolicFuncDataset={onDeleteUserSymbolicFuncDataset}
-                          />
-                        ))}
+                        {renderChildrenList(c, children)}
                         {showCombined
                           ? combinedFiltered.map((row) => (
                               <li key={`saved-cm-${row.entry.id}`}>

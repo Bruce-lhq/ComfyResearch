@@ -188,7 +188,9 @@ describe("declared ports", () => {
       in: ["left", "right"].map((id) => ({ id, accepts: [
         { type: "curve_series_viz", handles: ["compare"] },
         { type: "observable_viz", handles: ["compare"] },
-        { type: "tensor_viz_1d", handles: ["compare"] },
+        { type: "observable_accuracy", handles: ["compare"] },
+        { type: "training_visualization", handles: ["compare"] },
+        { family: "observable_user_tensor_viz_display", handles: ["compare"] },
       ] })),
     });
     expect(GENERATED_NODE_SPECS["observable_user"].ports).toEqual({
@@ -258,6 +260,9 @@ describe("ports verdict end-to-end semantics", () => {
     expect(check("curve_series_viz", "compare", "metric_compare", "right")).toBe(true);
     expect(check("observable_viz", "compare", "metric_compare", "left")).toBe(true);
     expect(check("tensor_viz_1d", "compare", "metric_compare", "left")).toBe(true);
+    expect(check("training_visualization", "compare", "metric_compare", "left")).toBe(true);
+    expect(check("observable_accuracy", "compare", "metric_compare", "left")).toBe(true);
+    expect(check("tensor_viz_general", "compare", "metric_compare", "left")).toBe(true);
     expect(check("curve_series_viz", "wrong", "metric_compare", "left")).toBe(false);
     expect(check("table_viz", "compare", "metric_compare", "left")).toBe(false);
     expect(check("curve_series_viz", "compare", "metric_compare", "unknown")).toBe(false);

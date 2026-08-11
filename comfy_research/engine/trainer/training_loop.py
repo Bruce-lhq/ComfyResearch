@@ -560,6 +560,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                     observable_metric_histories,
                     observable_embedding_histories,
                     recorder.observable_attention_slice_histories,
+                    recorder.observable_warnings,
                 )
                 yield {
                     "type": "metrics",
@@ -571,6 +572,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                     "epoch_ticks": list(epoch_ticks),
                     "observable_viz_updates": observable_updates,
                     "observable_metric_histories": dict(observable_metric_histories),
+                    "observable_warnings": dict(recorder.observable_warnings),
                 }
 
             if cbs_epochs_complete:
@@ -592,6 +594,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                     observable_metric_histories,
                     observable_embedding_histories,
                     recorder.observable_attention_slice_histories,
+                    recorder.observable_warnings,
                 )
                 yield {
                     "type": "paused",
@@ -608,6 +611,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                     "observable_metric_histories": observable_metric_histories,
                     "observable_embedding_histories": observable_embedding_histories,
                     "observable_attention_slice_histories": recorder.observable_attention_slice_histories,
+                    "observable_warnings": dict(recorder.observable_warnings),
                     "train_loop_seconds": train_loop_compute_seconds,
                 }
                 return
@@ -624,6 +628,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
             observable_metric_histories,
             observable_embedding_histories,
             recorder.observable_attention_slice_histories,
+            recorder.observable_warnings,
         )
         yield {
             "type": "complete",
@@ -639,6 +644,7 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
             "observable_metric_histories": observable_metric_histories,
             "observable_embedding_histories": observable_embedding_histories,
             "observable_attention_slice_histories": recorder.observable_attention_slice_histories,
+            "observable_warnings": dict(recorder.observable_warnings),
             "train_loop_seconds": train_loop_compute_seconds,
         }
     finally:

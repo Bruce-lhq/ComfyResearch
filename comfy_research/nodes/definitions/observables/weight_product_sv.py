@@ -52,15 +52,23 @@ def record(rec: "ObservableRecorder", on: "Node") -> None:
         for name, p in model.named_parameters()
         if name.endswith(".weight")
     ]
+    warnings = getattr(rec, "observable_warnings", None)
     if weight_matrices:
         try:
             W_eff = weight_matrices[0]
             for W in weight_matrices[1:]:
                 W_eff = W @ W_eff
             sv_sorted = torch.linalg.svdvals(W_eff).sort(descending=True).values
-        except Exception:
+        except Exception as exc:
+            if warnings is not None:
+                warnings[on.id] = (
+                    f"weight_product_sv: .weight tensors of {type(model).__name__} "
+                    "cannot form a single W_eff chain (embedding/attention/head dims); recording NaN."
+                )
             sv_sorted = torch.zeros(0)
     else:
+        if warnings is not None:
+            warnings[on.id] = "weight_product_sv: model has no .weight parameters; recording NaN."
         sv_sorted = torch.zeros(0)
     primary_sv = float(sv_sorted[0].item()) if sv_sorted.numel() > 0 else float("nan")
     observable_metric_histories[on.id].append(primary_sv)

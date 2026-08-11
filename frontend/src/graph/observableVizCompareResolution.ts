@@ -14,16 +14,33 @@ export type ResolvedObservableVizCompare = {
   logScaleY: boolean;
 };
 
-function finiteSeries(steps: unknown, values: unknown, id: string, label: string, color: string, metricId: string): PlotSeries | null {
+export function buildFiniteSeries(
+  steps: unknown,
+  values: unknown,
+  id: string,
+  label: string,
+  color: string,
+  metricId: string,
+  strokeDasharray?: string,
+): PlotSeries | null {
   if (!Array.isArray(steps) || !Array.isArray(values) || steps.length !== values.length || steps.length < 2) return null;
-  const points = steps.map((x, index) => ({ x: Number(x), y: Number(values[index]), rowId: id })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).map((point) => ({ ...point, xDisplay: String(point.x) }));
-  return points.length >= 2 ? { id, label, color, metricId, points } : null;
+  const points = steps
+    .map((x, index) => ({ x: Number(x), y: Number(values[index]), rowId: id }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map((point) => ({ ...point, xDisplay: String(point.x) }));
+  if (points.length < 2) return null;
+  return { id, label, color, metricId, points, ...(strokeDasharray ? { strokeDasharray } : {}) };
 }
 
+/** Observable mirror node kinds whose data holds step-aligned scalar series. */
+const OBSERVABLE_SERIES_NODE_TYPES = new Set(["observable_viz", "observable_accuracy"]);
+
 export function resolveObservableVizCompare(node: Node): ResolvedObservableVizCompare | null {
-  if (node.type !== "observable_viz") return null;
+  if (!OBSERVABLE_SERIES_NODE_TYPES.has(String(node.type ?? ""))) return null;
   const data = (node.data ?? {}) as ObservableVizUserNodeData;
-  const title = data.observableName?.trim() || "Observable viz";
+  const title =
+    data.observableName?.trim() || (node.type === "observable_accuracy" ? "Accuracy" : "Observable viz");
+  const metricId = /acc/i.test(title) ? "accuracy" : title;
   const steps = data.stepTicks;
   const plotSeries: PlotSeries[] = [];
   const multi = Array.isArray(data.valueHistories) ? data.valueHistories : [];
@@ -32,16 +49,16 @@ export function resolveObservableVizCompare(node: Node): ResolvedObservableVizCo
     multi.forEach((values, index) => {
       if (data.multiSeriesVisible?.[index] === false) return;
       const label = data.seriesLabels?.[index] || `series ${index + 1}`;
-      const series = finiteSeries(steps, values, `${node.id}-${index}`, label, colors[index % colors.length]!, title);
+      const series = buildFiniteSeries(steps, values, `${node.id}-${index}`, label, colors[index % colors.length]!, title);
       if (series) plotSeries.push(series);
     });
   } else {
     if (data.showSeries !== false && data.showTrainCurve !== false) {
-      const series = finiteSeries(steps, data.valueHistory, `${node.id}-train`, "train", "var(--cr-chart-1)", title);
+      const series = buildFiniteSeries(steps, data.valueHistory, `${node.id}-train`, "train", "var(--cr-chart-1)", metricId);
       if (series) plotSeries.push(series);
     }
     if (data.showTestCurve !== false) {
-      const series = finiteSeries(steps, data.testValueHistory, `${node.id}-test`, "test", "var(--cr-chart-2)", title);
+      const series = buildFiniteSeries(steps, data.testValueHistory, `${node.id}-test`, "test", "var(--cr-chart-2)", metricId);
       if (series) plotSeries.push({ ...series, strokeDasharray: "4 3" });
     }
   }

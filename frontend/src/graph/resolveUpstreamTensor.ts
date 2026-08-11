@@ -1,6 +1,11 @@
 import type { Edge, Node } from "@xyflow/react";
 import { SHAPE_ATOMIC_LAYER_TYPES, SHAPE_FULL_MODEL_TYPES } from "./canvasShapeSupport";
-import { getObservableVizVariant, observableVizAllowsTensorVizChain } from "./observableVizVariant";
+import {
+  getObservableVizVariant,
+  observableVizAllowsTensorVizChain,
+  observableVizHasTensorSeries,
+  type ObservableVizVariant,
+} from "./observableVizVariant";
 import { readActivationManifest, readActivationRunId } from "./activationNodeData";
 import type { ActivationNodeData, CollectedActivationTensor } from "../components/nodes/activationDefaults";
 import type { ObservableVizUserNodeData } from "../components/nodes/observableVizUserDefaults";
@@ -22,6 +27,7 @@ import type { EffectiveRankNodeData } from "../components/nodes/effectiveRankDef
 import type { SeriesEndpointGapNodeData } from "../components/nodes/seriesEndpointGapDefaults";
 import type { SmoothingCurveNodeData } from "../components/nodes/smoothingCurveDefaults";
 import type { DerivativeCurveNodeData } from "../components/nodes/derivativeCurveDefaults";
+import type { MovingStatisticsNodeData } from "../components/nodes/movingStatisticsDefaults";
 import type { ModelWeightTensorsNodeData } from "../components/nodes/modelWeightTensorsDefaults";
 import { TOY_LANGUAGE_DATASET_KINDS } from "../components/nodes/toyLanguageDatasetDefaults";
 import {
@@ -75,6 +81,14 @@ export type FlowNodeBare = {
   data?: unknown;
 };
 
+/** Tensor viz node kinds whose `out_tensor` re-exports the displayed input tensor. */
+const TENSOR_VIZ_PASSTHROUGH_TYPES = new Set([
+  "tensor_viz_general",
+  "tensor_viz_0d",
+  "tensor_viz_1d",
+  "tensor_viz_2d",
+]);
+
 export type ResolvedOk = {
   kind: "ok";
   rank: number;
@@ -83,6 +97,8 @@ export type ResolvedOk = {
   sourceSummary: string;
   /** When set (e.g. toy dataset word inspect), tensor reader shows this JSON instead of reshaped values. */
   textPreview?: string;
+  /** Optional step/position keys aligned with `values` (e.g. training step ticks). */
+  xTicks?: number[];
 };
 
 export type ResolvedNone = { kind: "none"; detail: string };
@@ -116,7 +132,27 @@ export type ResolvedLazyDataset = {
   ops?: LazyTensorOp[];
 };
 
-export type Resolved = ResolvedOk | ResolvedNone | ResolvedLazyActivation | ResolvedLazyDataset;
+/** One row of a Tensor selector multi-select batch output. */
+export type ResolvedTensorListRow = {
+  id: string;
+  label: string;
+  values: number[];
+  xTicks?: number[];
+};
+
+/** Batch output of the Tensor selector: the selected tensors in order. */
+export type ResolvedTensorList = {
+  kind: "tensor_list";
+  rows: ResolvedTensorListRow[];
+  sourceSummary: string;
+};
+
+export type Resolved =
+  | ResolvedOk
+  | ResolvedNone
+  | ResolvedLazyActivation
+  | ResolvedLazyDataset
+  | ResolvedTensorList;
 
 function lazyOpsEqual(a: LazyTensorOp[] | undefined, b: LazyTensorOp[] | undefined): boolean {
   return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
@@ -165,6 +201,30 @@ export function resolvedTensorEqual(a: Resolved, b: Resolved): boolean {
     const n = fullCompare ? len : Math.min(8, len);
     for (let i = 0; i < n; i++) {
       if (a.values[i] !== b.values[i]) return false;
+    }
+    if ((a.xTicks?.length ?? 0) !== (b.xTicks?.length ?? 0)) return false;
+    if (a.xTicks && b.xTicks) {
+      for (let i = 0; i < a.xTicks.length; i++) {
+        if (a.xTicks[i] !== b.xTicks[i]) return false;
+      }
+    }
+    return true;
+  }
+  if (a.kind === "tensor_list" && b.kind === "tensor_list") {
+    if (a.sourceSummary !== b.sourceSummary || a.rows.length !== b.rows.length) return false;
+    for (let i = 0; i < a.rows.length; i++) {
+      const ra = a.rows[i]!;
+      const rb = b.rows[i]!;
+      if (ra.id !== rb.id || ra.label !== rb.label || ra.values.length !== rb.values.length) return false;
+      if ((ra.xTicks?.length ?? 0) !== (rb.xTicks?.length ?? 0)) return false;
+      for (let j = 0; j < ra.values.length; j++) {
+        if (ra.values[j] !== rb.values[j]) return false;
+      }
+      if (ra.xTicks && rb.xTicks) {
+        for (let j = 0; j < ra.xTicks.length; j++) {
+          if (ra.xTicks[j] !== rb.xTicks[j]) return false;
+        }
+      }
     }
     return true;
   }
@@ -282,23 +342,11 @@ export function tensorChoicesFromSourceHandle(
   }
 
   if ((src.type === "observable_viz" || src.type === "observable_accuracy") && sh === "out_tensor") {
-    const v = getObservableVizVariant(src as Node);
-    if (v === "weight_l2") return [{ id: "weight_l2", label: "weight L2" }];
-    if (v === "weight_l1") return [{ id: "weight_l1", label: "weight L1" }];
-    if (v === "capacity") return [{ id: "capacity", label: "capacity" }];
-    if (v === "accuracy") {
-      return [
-        { id: "train_accuracy", label: "train acc" },
-        { id: "test_accuracy", label: "test acc" },
-      ];
-    }
-    if (v === "relu_nonlinear") return [{ id: "relu_nonlinear_count", label: "ReLU nonlinear count" }];
-    if (v === "user") {
-      const d = (src.data ?? {}) as Partial<ObservableVizUserNodeData>;
-      const name = (d.observableName ?? "user observable").trim() || "user observable";
-      return [{ id: "user_observable", label: name }];
-    }
-    return [];
+    return observableVizSeriesChoices(src);
+  }
+
+  if (TENSOR_VIZ_PASSTHROUGH_TYPES.has(String(src.type)) && sh === "out_tensor") {
+    return [{ id: "tensor", label: "tensor" }];
   }
 
   if ((src.type === "trainer" || src.type === "crl_trainer") && sh === "loss_results") {
@@ -362,13 +410,14 @@ export function tensorChoicesForTensorsInput(
   return tensorChoicesFromSourceHandle(nodes, src, edge.sourceHandle, edges);
 }
 
-function seriesOk(values: number[], sourceSummary: string): ResolvedOk {
+function seriesOk(values: number[], sourceSummary: string, xTicks?: number[]): ResolvedOk {
   return {
     kind: "ok",
     rank: 1,
     shape: [values.length],
     values,
     sourceSummary,
+    ...(xTicks && xTicks.length === values.length ? { xTicks } : {}),
   };
 }
 
@@ -392,6 +441,54 @@ function observableVizScalarSeriesFromNodeData(d: {
   if (!Array.isArray(row0) || row0.length === 0) return [];
   const out = row0.map((x) => Number(x));
   return out.some((x) => Number.isFinite(x)) ? out : [];
+}
+
+/** Row labels for multi-series observable viz panels when `seriesLabels` is absent. */
+function observableVizRowFallbackLabel(variant: ObservableVizVariant | null, index: number): string {
+  if (variant === "hessian_eigenvalues") return `eigenvalue ${index + 1}`;
+  if (variant === "weight_product_sv") return `σ${index + 1}`;
+  if (variant === "layer_spectral_norm") return `Linear layer ${index + 1}`;
+  return `series ${index + 1}`;
+}
+
+/** Choices the Tensor selector lists for an observable viz `out_tensor`: one entry per
+ * row of `valueHistories` (named via `seriesLabels`), falling back to the classic
+ * single-series ids when the panel stores `valueHistory` only. */
+export function observableVizSeriesChoices(node: FlowNodeBare): TensorListChoice[] {
+  const data = (node.data ?? {}) as Partial<ObservableVizUserNodeData>;
+  const variant = getObservableVizVariant(node as Node);
+  if (!observableVizHasTensorSeries(node as Node)) return [];
+  const multi = Array.isArray(data.valueHistories) ? data.valueHistories : [];
+  if (multi.length > 0) {
+    const labels = Array.isArray(data.seriesLabels) ? data.seriesLabels : [];
+    return multi.map((_, index) => ({
+      id: `series::${index}`,
+      label: labels[index]?.trim() || observableVizRowFallbackLabel(variant, index),
+    }));
+  }
+  switch (variant) {
+    case "weight_l2":
+      return [{ id: "weight_l2", label: "weight L2" }];
+    case "weight_l1":
+      return [{ id: "weight_l1", label: "weight L1" }];
+    case "capacity":
+      return [{ id: "capacity", label: "capacity" }];
+    case "accuracy":
+      return [
+        { id: "train_accuracy", label: "train acc" },
+        { id: "test_accuracy", label: "test acc" },
+      ];
+    case "relu_nonlinear":
+      return [{ id: "relu_nonlinear_count", label: "ReLU nonlinear count" }];
+    case "kan_reg":
+      return [{ id: "kan_reg", label: "KAN reg" }];
+    case "user":
+    default: {
+      const d = (node.data ?? {}) as Partial<ObservableVizUserNodeData>;
+      const name = (d.observableName ?? "user observable").trim() || "user observable";
+      return [{ id: "user_observable", label: name }];
+    }
+  }
 }
 
 function tensorElementCount(shape: number[]): number {
@@ -659,19 +756,35 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No train loss series yet — run training." };
       }
-      return seriesOk(values, "Training viz · train loss");
+      return seriesOk(values, "Training viz · train loss", d.stepTicks);
     }
     if (selectedKey === "test_loss") {
       const values = (d.testLossHistory ?? []).map(Number);
       if (values.length === 0) {
         return { kind: "none", detail: "No test loss series yet — run training." };
       }
-      return seriesOk(values, "Training viz · test loss");
+      return seriesOk(values, "Training viz · test loss", d.stepTicks);
     }
     return { kind: "none", detail: "Pick train loss or test loss in the Tensor selector." };
   }
 
   if ((src.type === "observable_viz" || src.type === "observable_accuracy") && sh === "out_tensor") {
+    if (selectedKey.startsWith("series::")) {
+      const rowIndex = Number.parseInt(selectedKey.slice("series::".length), 10);
+      const d = (src.data ?? {}) as Partial<ObservableVizUserNodeData>;
+      const multi = Array.isArray(d.valueHistories) ? d.valueHistories : [];
+      const values =
+        multi.length > 0
+          ? (multi[rowIndex] ?? []).map(Number)
+          : rowIndex === 0
+            ? observableVizScalarSeriesFromNodeData(d)
+            : [];
+      if (values.length === 0) {
+        return { kind: "none", detail: "No data for this series yet — run training." };
+      }
+      const label = Array.isArray(d.seriesLabels) ? d.seriesLabels[rowIndex]?.trim() : "";
+      return seriesOk(values, label ? `Observable viz · ${label}` : "Observable viz", d.stepTicks);
+    }
     const v = getObservableVizVariant(src as Node);
     if (v === "weight_l2") {
       if (selectedKey !== "weight_l2") {
@@ -682,7 +795,7 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No weight L2 series yet — run training." };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
     if (v === "weight_l1") {
       if (selectedKey !== "weight_l1") {
@@ -693,7 +806,7 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No weight L1 series yet — run training." };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
     if (v === "capacity") {
       if (selectedKey !== "capacity") {
@@ -704,7 +817,7 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No capacity series yet — run training." };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
     if (v === "accuracy") {
       if (selectedKey !== "train_accuracy" && selectedKey !== "test_accuracy") {
@@ -739,7 +852,7 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No nonlinear count series yet — run training." };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
     if (v === "user") {
       if (selectedKey !== "user_observable") {
@@ -750,7 +863,7 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No user observable series yet — run training." };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
     return { kind: "none", detail: "Unsupported observable viz variant for tensor list." };
   }
@@ -762,14 +875,14 @@ function resolveTensorFromListSource(
       if (values.length === 0) {
         return { kind: "none", detail: "No train loss history yet — run training." };
       }
-      return seriesOk(values, "Trainer · train loss");
+      return seriesOk(values, "Trainer · train loss", d.stepTicks);
     }
     if (selectedKey === "test_loss") {
       const values = (d.testLossHistory ?? []).map(Number);
       if (values.length === 0) {
         return { kind: "none", detail: "No test loss history yet — run training." };
       }
-      return seriesOk(values, "Trainer · test loss");
+      return seriesOk(values, "Trainer · test loss", d.stepTicks);
     }
     return { kind: "none", detail: "Pick train loss or test loss in the Tensor selector." };
   }
@@ -785,7 +898,7 @@ function resolveTensorFromListSource(
       };
     }
     const values = arr.map(Number);
-    return seriesOk(values, `Trainer · ${observableMetricLabel(nodes, selectedKey)}`);
+    return seriesOk(values, `Trainer · ${observableMetricLabel(nodes, selectedKey)}`, d.stepTicks);
   }
 
   if (src.type === "model_weight_tensors" && sh === "tensor_list") {
@@ -844,6 +957,10 @@ function resolveTensorFromListSource(
     };
   }
 
+  if (TENSOR_VIZ_PASSTHROUGH_TYPES.has(String(src.type)) && sh === "out_tensor") {
+    return resolveUpstreamTensor(nodes, edges, src.id, "tensor");
+  }
+
   return { kind: "none", detail: "Unsupported tensor list source for list picker." };
 }
 
@@ -864,6 +981,44 @@ export function orderedSelectedTensorKeysForPicker(
   }
   const keySet = new Set(keys);
   return idOrder.filter((id) => keySet.has(id));
+}
+
+/** Batch output of the Tensor selector: every selected tensor, in selection order. */
+function resolveTensorSelectorList(
+  nodes: FlowNodeBare[],
+  edges: FlowEdge[],
+  selectorId: string,
+): Resolved {
+  const listEdge = edges.find((e) => e.target === selectorId && e.targetHandle === "tensor_list");
+  if (!listEdge?.source) {
+    return { kind: "none", detail: "Connect the tensor list input first." };
+  }
+  const picker = nodes.find((n) => n.id === selectorId);
+  if (!picker || picker.type !== "tensor_selector") {
+    return { kind: "none", detail: "Invalid list picker node." };
+  }
+  const tsData = (picker.data ?? {}) as Partial<TensorSelectorNodeData>;
+  const choices = tensorChoicesForTensorsInput(nodes, edges, selectorId);
+  const orderedKeys = orderedSelectedTensorKeysForPicker(tsData, choices);
+  if (orderedKeys.length === 0) {
+    return { kind: "none", detail: "Pick at least one tensor in the Tensor selector." };
+  }
+  const labelById = new Map(choices.map((c) => [c.id, c.label]));
+  const rows: ResolvedTensorListRow[] = [];
+  for (const key of orderedKeys) {
+    const r = resolveTensorFromListSource(nodes, edges, listEdge, key);
+    if (r.kind !== "ok") continue;
+    rows.push({
+      id: key,
+      label: labelById.get(key) ?? key,
+      values: r.values,
+      ...(r.xTicks ? { xTicks: r.xTicks } : {}),
+    });
+  }
+  if (rows.length === 0) {
+    return { kind: "none", detail: "Selected tensors have no data yet — run training first." };
+  }
+  return { kind: "tensor_list", rows, sourceSummary: `Tensor selector · ${rows.length} series` };
 }
 
 function resolveTensorFromListPicker(
@@ -1236,6 +1391,34 @@ function resolveTensorAtSourcePort(
       shape,
       values,
       sourceSummary: "Derivative curve · output",
+    };
+  }
+
+  if (src.type === "moving_statistics") {
+    const h = sourceHandle ?? "";
+    if (h !== "tensor") {
+      return { kind: "none", detail: "Connect from Moving statistics output handle 'tensor'." };
+    }
+    const sd = (src.data ?? {}) as Partial<MovingStatisticsNodeData>;
+    const t = sd.outputTensor;
+    if (!t || !Array.isArray(t.shape) || !Array.isArray(t.values) || t.values.length === 0) {
+      return {
+        kind: "none",
+        detail: "Moving statistics has no output yet - connect upstream and click Compute.",
+      };
+    }
+    const shape = t.shape.map((x) => Number(x));
+    const values = t.values.map((x) => Number(x));
+    const rank = shape.length;
+    return {
+      kind: "ok",
+      rank,
+      shape,
+      values,
+      ...(Array.isArray(t.stepTicks) && t.stepTicks.length === values.length
+        ? { xTicks: t.stepTicks.map((x) => Number(x)) }
+        : {}),
+      sourceSummary: "Moving statistics · output",
     };
   }
 
@@ -1797,7 +1980,7 @@ function resolveTensorAtSourcePort(
     if (values.length === 0) {
       return { kind: "none", detail: "No train loss series yet — run training." };
     }
-    return seriesOk(values, "Training viz · train loss");
+    return seriesOk(values, "Training viz · train loss", d.stepTicks);
   }
 
   if ((src.type === "observable_viz" || src.type === "observable_accuracy") && incHandle === "out_tensor") {
@@ -1815,16 +1998,11 @@ function resolveTensorAtSourcePort(
           detail: "No series yet — connect the trainer and run training.",
         };
       }
-      return seriesOk(values, "Observable viz");
+      return seriesOk(values, "Observable viz", d.stepTicks);
     }
   }
 
-  const tensorVizPassthrough = new Set([
-    "tensor_viz_general",
-    "tensor_viz_0d",
-    "tensor_viz_1d",
-    "tensor_viz_2d",
-  ]);
+  const tensorVizPassthrough = TENSOR_VIZ_PASSTHROUGH_TYPES;
   const sh = incHandle;
   if (src.type && tensorVizPassthrough.has(String(src.type)) && sh === "out_tensor") {
     return resolveUpstreamTensor(nodes, edges, src.id, "tensor");
@@ -1838,7 +2016,7 @@ function resolveTensorAtSourcePort(
       if (values.length === 0) {
         return { kind: "none", detail: "No train loss history yet — run training (direct loss handle uses train loss)." };
       }
-      return seriesOk(values, "Trainer · train loss");
+      return seriesOk(values, "Trainer · train loss", td.stepTicks);
     }
     if (h === "observable_results") {
       const hist = td.observableMetricHistories ?? {};
@@ -1851,7 +2029,7 @@ function resolveTensorAtSourcePort(
       if (values.length === 0) {
         return { kind: "none", detail: "Observable series is empty — run training." };
       }
-      return seriesOk(values, `Trainer · ${observableMetricLabel(nodes, pick)}`);
+      return seriesOk(values, `Trainer · ${observableMetricLabel(nodes, pick)}`, td.stepTicks);
     }
     return { kind: "none", detail: "Connect from trainer “loss” or “observable” result handles." };
   }
@@ -1868,6 +2046,9 @@ function resolveTensorAtSourcePort(
   }
 
   if (src.type === "tensor_selector") {
+    if ((sourceHandle ?? "").trim() === "tensor_list") {
+      return resolveTensorSelectorList(nodes, edges, src.id);
+    }
     return resolveTensorFromListPicker(nodes, edges, src.id, sourceHandle ?? "");
   }
 

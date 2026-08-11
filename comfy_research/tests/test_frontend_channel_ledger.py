@@ -16,7 +16,7 @@ GEN = ROOT / "comfy_research" / "generated"
 CORE_FRONTEND_NODES = ("comment", "graph_assist_failure_overlay", "hypothesis", "url_node")
 ANALYSIS_FRONTEND_NODES = (
     "basic_calculator", "derivative_curve", "effective_rank",
-    "model_weight_tensors", "pca", "prediction", "series_endpoint_gap", "shape_checker",
+    "model_weight_tensors", "moving_statistics", "pca", "prediction", "series_endpoint_gap", "shape_checker",
     "smoothing_curve", "statistics", "statistics2", "svd", "tensor_reader",
 )
 TENSOR_TABLE_FRONTEND_NODES = (
@@ -68,8 +68,8 @@ def test_frontend_registry_count() -> None:
     """The registry exposes the complete supported frontend node set."""
     from comfy_research.nodes import registry
 
-    assert len(registry.frontend_def_types()) == 51
-    assert len(REGISTERED_FRONTEND_TYPES) == 51
+    assert len(registry.frontend_def_types()) == 52
+    assert len(REGISTERED_FRONTEND_TYPES) == 52
 
 
 def test_frontend_registry_types() -> None:
