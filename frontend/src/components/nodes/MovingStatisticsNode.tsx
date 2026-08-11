@@ -1,4 +1,4 @@
-import { Handle, Position, useReactFlow, useStore, type Edge, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useReactFlow, useStore, type Node, type NodeProps } from "@xyflow/react";
 import { useCallback, useEffect, useMemo } from "react";
 import { hydrateResolved } from "../../graph/fetchActivationTensor";
 import { readInstanceTitle } from "../../graph/nodeInstanceTitle";
@@ -61,70 +61,6 @@ function patchMovingStatisticsData(
       return { ...n, data: next };
     }),
   );
-}
-
-function finiteStepTicks(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-}
-
-function stepTicksFromTrainingLikeNode(n: Node | undefined): number[] | null {
-  if (!n) return null;
-  if (n.type === "training_visualization") {
-    const d = (n.data ?? {}) as Partial<TrainingVisualizationNodeData>;
-    const ticks = finiteStepTicks(d.stepTicks);
-    return ticks.length >= 2 ? ticks : null;
-  }
-  if (n.type === "trainer" || n.type === "crl_trainer") {
-    const d = (n.data ?? {}) as Partial<TrainerNodeData>;
-    const ticks = finiteStepTicks(d.stepTicks);
-    return ticks.length >= 2 ? ticks : null;
-  }
-  return null;
-}
-
-function resolveUpstreamStepTicks(nodes: Node[], edges: Edge[], consumerId: string): number[] | null {
-  const inc = edges.find((e) => e.target === consumerId && (e.targetHandle ?? "tensor") === "tensor");
-  if (!inc?.source) return null;
-  const src = nodes.find((n) => n.id === inc.source);
-  if (!src) return null;
-
-  if (
-    (src.type === "training_visualization" && (inc.sourceHandle ?? "") === "out_tensor_list") ||
-    ((src.type === "trainer" || src.type === "crl_trainer") && (inc.sourceHandle ?? "") === "loss_results")
-  ) {
-    return stepTicksFromTrainingLikeNode(src);
-  }
-
-  if (src.type !== "tensor_selector") return null;
-  const listEdge = edges.find((e) => e.target === src.id && (e.targetHandle ?? "") === "tensor_list");
-  if (!listEdge?.source) return null;
-  const listSource = nodes.find((n) => n.id === listEdge.source);
-  if (!listSource) return null;
-  const tsData = (src.data ?? {}) as Partial<TensorSelectorNodeData>;
-  const selected = Array.isArray(tsData.selectedTensorKeys)
-    ? tsData.selectedTensorKeys.map((k) => String(k).trim()).filter(Boolean)
-    : [String(tsData.selectedTensorKey ?? "").trim()].filter(Boolean);
-  const selIdx = tensorSelectorOutputIndexFromSourceHandle(inc.sourceHandle);
-  const selectedKey = selected[selIdx] ?? selected[0] ?? "";
-  if (!selectedKey) return null;
-
-  const listSh = listEdge.sourceHandle ?? "";
-  if (
-    listSource.type === "training_visualization" &&
-    listSh === "out_tensor_list" &&
-    (selectedKey === "train_loss" || selectedKey === "test_loss")
-  ) {
-    return stepTicksFromTrainingLikeNode(listSource);
-  }
-  if (
-    (listSource.type === "trainer" || listSource.type === "crl_trainer") &&
-    listSh === "loss_results" &&
-    (selectedKey === "train_loss" || selectedKey === "test_loss")
-  ) {
-    return stepTicksFromTrainingLikeNode(listSource);
-  }
-  return null;
 }
 
 export function ProcessedCurveChart({
@@ -324,12 +260,6 @@ export function MovingStatisticsNode({ id, data, selected }: NodeProps) {
     (patch: Partial<MovingStatisticsNodeData>) => patchMovingStatisticsData(id, patch, setNodes),
     [id, setNodes],
   );
-  const stepTicks = useStore(
-    useCallback(
-      (state) => resolveUpstreamStepTicks(state.nodes as Node[], state.edges as Edge[], id),
-      [id],
-    ),
-  );
 
   const compute = useCallback(async () => {
     const hydrated = await hydrateResolved(resolved);
@@ -356,7 +286,7 @@ export function MovingStatisticsNode({ id, data, selected }: NodeProps) {
       d.minPeriods,
     );
     const outputTicks = movingStatisticsOutputTicks(
-      stepTicks,
+      hydrated.xTicks,
       hydrated.values.length,
       d.window,
       d.stride,
@@ -373,7 +303,7 @@ export function MovingStatisticsNode({ id, data, selected }: NodeProps) {
           },
       lastError: bad ? "Moving statistic output contains non-finite values." : null,
     });
-  }, [d.statistic, d.window, d.stride, d.minPeriods, resolved, stepTicks, update]);
+  }, [d.statistic, d.window, d.stride, d.minPeriods, resolved, update]);
 
   useEffect(() => {
     if (resolved.kind !== "none") return;
