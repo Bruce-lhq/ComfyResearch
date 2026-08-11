@@ -57,12 +57,25 @@ def _as_symmetric_float_matrix(mat: torch.Tensor) -> torch.Tensor:
 
 def _eigh_psd_with_fallback(mat: torch.Tensor, eps: float) -> tuple[torch.Tensor, torch.Tensor]:
     work = _as_symmetric_float_matrix(mat)
+    if not bool(torch.isfinite(work).all()):
+        raise ValueError(
+            "Preconditioner eigensystem received a non-finite matrix; refusing to continue silently "
+            f"(shape {tuple(work.shape)})."
+        )
     jitter = max(float(eps), float(torch.finfo(work.dtype).eps))
     eye = torch.eye(work.shape[0], dtype=work.dtype, device=work.device)
     last_exc: RuntimeError | None = None
+
+    def _checked(evals: torch.Tensor, evecs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if not (bool(torch.isfinite(evals).all()) and bool(torch.isfinite(evecs).all())):
+            raise ValueError(
+                "Preconditioner eigensystem produced non-finite values; refusing to continue silently."
+            )
+        return evals, evecs
+
     for scale in _EIGH_JITTER_SCALES:
         try:
-            return torch.linalg.eigh(work + (jitter * scale) * eye)
+            return _checked(*torch.linalg.eigh(work + (jitter * scale) * eye))
         except RuntimeError as exc:
             last_exc = exc
 
@@ -74,8 +87,9 @@ def _eigh_psd_with_fallback(mat: torch.Tensor, eps: float) -> tuple[torch.Tensor
     for scale in _EIGH_JITTER_SCALES:
         try:
             evals, evecs = torch.linalg.eigh(cpu_work + (cpu_jitter * scale) * cpu_eye)
-            return evals.to(device=work.device, dtype=work.dtype), evecs.to(
-                device=work.device, dtype=work.dtype
+            return _checked(
+                evals.to(device=work.device, dtype=work.dtype),
+                evecs.to(device=work.device, dtype=work.dtype),
             )
         except RuntimeError as exc:
             last_exc = exc
