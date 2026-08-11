@@ -22,12 +22,9 @@
   />
 </p>
 
-> [!WARNING]
-> ComfyResearch is under active development. The documented core is tested,
-> but APIs and saved-artifact formats do not yet promise compatibility across
-> untagged development revisions.
-
 ComfyResearch is a local visual workbench for AI and machine-learning research. Connect a dataset, model, loss, optimizer, and Trainer; attach Observables to measure learning dynamics; then run the graph through a FastAPI and PyTorch backend.
+
+Read [ComfyResearch: See How Learning Happens](https://meta-circle.com/blog/comfyresearch-see-how-learning-happens) for a visual introduction to the workbench and the learning dynamics it is designed to reveal.
 
 <p>
   <a href="https://online.comfy-research.com/"><img src="https://img.shields.io/badge/Try_online-29252D?style=for-the-badge" alt="Try online" align="middle" /></a>&nbsp;&nbsp;Explore ComfyResearch in your browser before installing it locally.

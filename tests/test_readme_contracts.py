@@ -59,11 +59,14 @@ def test_readme_uses_onboarding_overview_before_reproduction_result() -> None:
     assert source.index(overview) < source.index(result)
 
 
-def test_readme_states_maturity_and_first_run_success() -> None:
+def test_readme_states_maturity_links_blog_and_first_run_success() -> None:
     source = README.read_text()
 
     assert "Status-Pre--release" in source
-    assert "do not yet promise compatibility" in source
+    assert (
+        "https://meta-circle.com/blog/comfyresearch-see-how-learning-happens"
+        in source
+    )
     assert "## Why ComfyResearch" in source
     assert "## How it works" in source
     assert "### Success checkpoint" in source
