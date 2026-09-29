@@ -231,6 +231,23 @@ def _materialize_for_token(req: DatasetMaterializeRequest) -> DatasetArrays:
         return _materialize_memorization_b_token(
             rng, dd_train, dd_test, ds_test_raw, train_size, test_size,
         )
+    # NodeDef 通道 generated-first(与 dense 分支同纪律):registry materializer
+    # 优先于 toy/fallback 链;str-enum NodeKind 与 plain-str 键 hash/== 等价。
+    # token 分支无框架解析的 dims(input_dim=ctx、output_dim=vocab 由 provider
+    # 在 DatasetArrays 里自报),此处传 0 占位。
+    _mat = dataset_defs_materializers().get(ds_train.type)
+    if _mat is not None:
+        return _mat(DatasetMaterializeContext(
+            ds_type=ds_train.type,
+            rng=rng,
+            dd_train=dd_train,
+            dd_test=dd_test,
+            train_size=train_size,
+            test_size=test_size,
+            input_dim=0,
+            output_dim=0,
+            ds_test_raw=ds_test_raw,
+        ))
     vocab_ds = _scalar_int(dd_train.get("vocabSize"), 4)
     if ds_train.type == NodeKind.unigram_dataset:
         return _materialize_unigram(rng, dd_train, dd_test, train_size, test_size, vocab_ds)

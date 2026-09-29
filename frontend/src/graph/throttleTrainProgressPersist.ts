@@ -4,6 +4,7 @@ export type TrainProgressUiPatch = {
   progressPct: number;
   seriesBarPct: number;
   phaseText: string | null;
+  throughputText: string | null;
 };
 
 export function createTrainProgressUiThrottler(args: {

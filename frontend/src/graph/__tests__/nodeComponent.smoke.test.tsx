@@ -80,7 +80,8 @@ describe("node component smoke", () => {
     expect(container.querySelector(".cr-trainer-advanced__status")).toBeNull();
     expect(
       container.querySelector('.cr-comfy-widget__label[title*="selected minibatch policy"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(container.querySelector('.cr-comfy-widget__label[title*="full batch"]')).toBeNull();
 
     act(() => {
       root.unmount();

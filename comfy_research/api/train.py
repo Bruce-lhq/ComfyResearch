@@ -67,6 +67,7 @@ class RemoteTrainConfigBody(BaseModel):
     identity: str = ""
     password: str = ""
     extra_opts: str = ""
+    ssh_command: str = ""
     enabled: bool = False
     upload_dataset: bool = False
 
@@ -79,6 +80,7 @@ class RemoteTrainConfigResponse(BaseModel):
     identity: str
     password: str
     extra_opts: str
+    ssh_command: str
     enabled: bool
     upload_dataset: bool
     source: str
@@ -104,6 +106,7 @@ def _cfg_from_body(body: RemoteTrainConfigBody) -> RemoteTrainConfig:
         identity=body.identity,
         password=body.password,
         extra_opts=body.extra_opts,
+        ssh_command=body.ssh_command,
         enabled=body.enabled,
         upload_dataset=body.upload_dataset,
         source="stored",
@@ -120,6 +123,7 @@ def _cfg_response(cfg: RemoteTrainConfig) -> RemoteTrainConfigResponse:
         identity=c.identity,
         password=c.password,
         extra_opts=c.extra_opts,
+        ssh_command=c.ssh_command,
         enabled=c.enabled,
         upload_dataset=c.upload_dataset,
         source=c.source,
@@ -425,32 +429,36 @@ def post_train(body: TrainRequest) -> StreamingResponse:
     n_by_id = {n.id: n for n in body.nodes}
     tnode = n_by_id.get(body.trainer_node_id)
     is_crl = tnode is not None and str(tnode.type) == str(NodeKind.crl_trainer)
-    if is_crl:
-        crl_ctx = prepare_crl_run(
-            body.nodes,
-            body.edges,
-            body.trainer_node_id,
-            resume=body.resume,
-        )
 
-        def generate_crl():
-            for event in iter_crl_events_from_context(crl_ctx):
-                yield _ndjson_encode(event)
+    # Surface real validation/construction errors instead of a bare 500:
+    # HTTPException keeps its status/detail; any other exception is reported
+    # with its message so the UI can show the actual failure.
+    def _prepare_or_report():
+        try:
+            if is_crl:
+                return prepare_crl_run(
+                    body.nodes,
+                    body.edges,
+                    body.trainer_node_id,
+                    resume=body.resume,
+                )
+            mapped_nodes = remap_ai4science_node_types(body.nodes)
+            return prepare_trainer_run(
+                mapped_nodes,
+                body.edges,
+                body.trainer_node_id,
+                resume=body.resume,
+                hessian_oversized_policy=body.hessian_oversized_policy,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
 
-        return StreamingResponse(
-            generate_crl(),
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store"},
-        )
-
-    mapped_nodes = remap_ai4science_node_types(body.nodes)
-    ctx = prepare_trainer_run(
-        mapped_nodes,
-        body.edges,
-        body.trainer_node_id,
-        resume=body.resume,
-        hessian_oversized_policy=body.hessian_oversized_policy,
-    )
+    ctx = _prepare_or_report()
 
     def generate():
         for event in iter_trainer_events_from_context(ctx):

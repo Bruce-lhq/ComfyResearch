@@ -62,7 +62,9 @@ def _find_sshpass() -> str | None:
 
 def _ssh_prefix(config: RemoteTrainConfig) -> tuple[list[str], dict[str, str] | None]:
     cfg = config.normalized()
-    cmd: list[str] = ["ssh", "-T"]
+    # Custom ssh executable (e.g. a Keychain askpass wrapper); empty = system ssh.
+    base_cmd: list[str] = shlex.split(cfg.ssh_command) if cfg.ssh_command.strip() else ["ssh"]
+    cmd: list[str] = [*base_cmd, "-T"]
     env: dict[str, str] | None = None
     sshpass_bin = _find_sshpass()
     if cfg.password:
@@ -90,10 +92,13 @@ def _ssh_prefix(config: RemoteTrainConfig) -> tuple[list[str], dict[str, str] | 
             ]
         )
     else:
+        # A custom ssh command implies an askpass-style wrapper (e.g. Keychain);
+        # BatchMode=yes would suppress its prompt, so keep interaction enabled.
+        batch = "no" if cfg.ssh_command.strip() else "yes"
         cmd.extend(
             [
                 "-o",
-                "BatchMode=yes",
+                f"BatchMode={batch}",
                 "-o",
                 "StrictHostKeyChecking=accept-new",
                 "-o",
@@ -309,7 +314,7 @@ ARTIFACT_ROOT={shlex.quote(artifact_root)}
 mkdir -p "$ARTIFACT_ROOT/checkpoints"
 STAGING=$(mktemp -d "$ARTIFACT_ROOT/.upload.XXXXXX")
 trap 'rm -rf "$STAGING"' EXIT
-tar -xf - -C "$STAGING"
+tar --no-same-owner --no-same-permissions -xf - -C "$STAGING"
 {installs}
 """.strip()
     cmd, env = _ssh_shell_command(cfg, upload)
@@ -399,7 +404,7 @@ REMOTE_REPO={shlex.quote(remote_repo)}
 BUNDLE_HASH={shlex.quote(bundle_digest)}
 mkdir -p "$REMOTE_REPO/.comfyresearch"
 rm -rf "$REMOTE_REPO/comfy_research"
-tar -xzf - -C "$REMOTE_REPO"
+tar --no-same-owner --no-same-permissions -xzf - -C "$REMOTE_REPO"
 if [ -n "$BUNDLE_HASH" ]; then
   echo "$BUNDLE_HASH" > "$REMOTE_REPO/.comfyresearch/bundle.sha256"
 fi

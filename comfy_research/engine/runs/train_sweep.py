@@ -191,7 +191,7 @@ def validate_sweep_request(body: TrainSweepRequest) -> None:
     nmap = {n.id: n for n in body.nodes}
     if body.trainer_node_id not in nmap:
         raise ValueError("trainer_node_id not found in nodes.")
-    tk = str(nmap[body.trainer_node_id].type)
+    tk = nmap[body.trainer_node_id].type
     if not has_capability(tk, "trainer_runner"):
         raise ValueError("trainer_node_id must refer to a trainer or crl_trainer node.")
 
@@ -216,7 +216,7 @@ def validate_sweep_request(body: TrainSweepRequest) -> None:
 
     # Dry-run prepare on base graph (catches wiring errors before streaming).
     try:
-        if str(nmap[body.trainer_node_id].type) == str(NodeKind.crl_trainer):
+        if nmap[body.trainer_node_id].type == NodeKind.crl_trainer:
             prepare_crl_run(body.nodes, body.edges, body.trainer_node_id, resume=None)
         else:
             prepare_trainer_run(
@@ -264,7 +264,7 @@ def iter_sweep_events(body: TrainSweepRequest) -> Iterator[dict[str, Any]]:
                 nodes_p = _trainer_training_steps_override(
                     nodes_p, body.trainer_node_id, body.training_steps_override
                 )
-                is_crl = str(nmap[body.trainer_node_id].type) == str(NodeKind.crl_trainer)
+                is_crl = nmap[body.trainer_node_id].type == NodeKind.crl_trainer
                 if is_crl:
                     ctx_crl = prepare_crl_run(nodes_p, body.edges, body.trainer_node_id, resume=None)
                     event_iter = iter_crl_events_from_context(ctx_crl)

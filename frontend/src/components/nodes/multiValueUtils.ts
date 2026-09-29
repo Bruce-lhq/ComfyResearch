@@ -15,11 +15,18 @@ export function intChoices(x: unknown, fallback: number): number[] {
   return Number.isInteger(n) ? [n] : [fallback];
 }
 
-export function floatChoices(x: unknown, fallback: number): number[] {
+/** ``"inf"`` / ``∞`` means positive infinity (e.g. CA temperature tau=inf). */
+export function isInfMarker(v: unknown): boolean {
+  if (typeof v === "number") return v === Infinity;
+  return /^(inf|infinity|∞)$/i.test(String(v).trim());
+}
+
+export function floatChoices(x: unknown, fallback: number): (number | "inf")[] {
   if (Array.isArray(x)) {
-    const arr = x.map((v) => Number(v)).filter((n) => Number.isFinite(n));
-    return arr.length ? arr : [fallback];
+    const arr = x.map((v) => (isInfMarker(v) ? ("inf" as const) : Number(v))).filter((n) => n === "inf" || Number.isFinite(n));
+    return arr.length ? (arr as (number | "inf")[]) : [fallback];
   }
+  if (isInfMarker(x)) return ["inf"];
   if (typeof x === "number" && Number.isFinite(x)) return [x];
   const n = Number(x);
   return Number.isFinite(n) ? [n] : [fallback];
@@ -31,8 +38,8 @@ export function packIntList(values: number[]): number | number[] {
   return v.length === 1 ? v[0]! : v;
 }
 
-export function packFloatList(values: number[]): number | number[] {
-  const v = values.filter((n) => Number.isFinite(n));
+export function packFloatList(values: number[]): number | "inf" | (number | "inf")[] {
+  const v = values.map((n) => (isInfMarker(n) ? ("inf" as const) : n)).filter((n) => n === "inf" || Number.isFinite(n));
   if (!v.length) return 0;
   return v.length === 1 ? v[0]! : v;
 }
@@ -55,6 +62,10 @@ export function parseFloatList(s: string, opts?: { min?: number; max?: number; p
   const out: number[] = [];
   for (const p of parts) {
     const raw = p.replaceAll(",", "");
+    if (isInfMarker(raw)) {
+      out.push(Infinity);
+      continue;
+    }
     const n = Number(raw);
     if (!Number.isFinite(n)) throw new Error(`Not a number: ${p}`);
     if (opts?.positiveOnly && n <= 0) throw new Error(`Must be positive: ${p}`);
@@ -90,4 +101,45 @@ export function packEnumList<T extends string>(values: T[]): ListOr1<T> {
   if (uniq.length === 0) return [];
   if (uniq.length === 1) return uniq[0]!;
   return uniq;
+}
+
+// ---- Scaled integer units (K / M / B / G) for token-scale knobs ----
+
+const SCALE_SUFFIX: Record<string, number> = { k: 1e3, m: 1e6, b: 1e9, g: 1e12 };
+
+/** Parse ``"90M"`` / ``"4.5M"`` / ``"1B"`` / ``"500K"`` into an integer. */
+export function parseScaledInt(s: string): number | null {
+  const m = /^(\d+(?:\.\d+)?)\s*([kKmMgGbB]?)$/.exec(s.trim());
+  if (!m) return null;
+  const num = Number(m[1]);
+  if (!Number.isFinite(num)) return null;
+  const suffix = (m[2] || "").toLowerCase();
+  const scale = suffix ? SCALE_SUFFIX[suffix] : 1;
+  return Math.round(num * scale);
+}
+
+/** Comma / space separated scaled integers (``90M, 1B``); errors keep the caller's warn path. */
+export function parseScaledIntList(s: string): number[] {
+  const parts = s.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+  const out: number[] = [];
+  for (const p of parts) {
+    const n = parseScaledInt(p);
+    if (n === null) throw new Error(`Not a scaled integer: ${p}`);
+    out.push(n);
+  }
+  return out;
+}
+
+/** Render an integer with a compact K/M/B/G suffix (``90000000`` → ``90M``). */
+function trimTrailingZero(s: string): string {
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+}
+
+export function formatScaledInt(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return trimTrailingZero(`${n / 1e12}G`);
+  if (abs >= 1e9) return trimTrailingZero(`${n / 1e9}B`);
+  if (abs >= 1e6) return trimTrailingZero(`${n / 1e6}M`);
+  if (abs >= 1e3) return trimTrailingZero(`${n / 1e3}K`);
+  return String(n);
 }

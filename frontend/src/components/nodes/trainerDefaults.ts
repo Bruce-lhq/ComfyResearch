@@ -21,6 +21,8 @@ export type TrainerTrainUi = {
   captionLines: string[] | null;
   phaseText: string | null;
   error: string | null;
+  /** tok/s · ETA line; persisted so it survives node remount (onlyRenderVisibleElements). */
+  throughputText: string | null;
 };
 
 export function emptyTrainerTrainUi(): TrainerTrainUi {
@@ -34,6 +36,7 @@ export function emptyTrainerTrainUi(): TrainerTrainUi {
     captionLines: null,
     phaseText: null,
     error: null,
+    throughputText: null,
   };
 }
 
@@ -131,6 +134,20 @@ export type TrainerNodeData = {
   trainCompleteCheckpoint?: TrainerPauseCheckpoint;
   /** Series sweep context when paused mid-series (Continue resumes correct combo). */
   trainSeriesPauseCtx?: { totalRuns: number; runIndex: number };
+  /** User-edited series queue (ordered combos; undefined = default plan order). */
+  trainQueue?: TrainSeriesAssignment[][];
+  /** Config keys of completed runs (for duplicate detection). */
+  completedRunKeys?: string[];
+  /** Series queue editing enabled (user touched the queue). */
+  trainQueueCustom?: boolean;
+  /** Combo keys the user confirmed to skip (duplicates). */
+  trainQueueSkipKeys?: string[];
+  /** Completed-run results for the sweep stats table (final ppl + swept params). */
+  sweepResultRows?: {
+    params: Record<string, string>;
+    seedValues: Record<string, string>;
+    ppl: number;
+  }[];
   /** User-defined target curve for hyperparameter tuning. */
   targetCurveStepTicks?: number[];
   targetCurveLossHistory?: number[];

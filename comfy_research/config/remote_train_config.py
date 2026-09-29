@@ -16,6 +16,7 @@ class RemoteTrainConfig:
     identity: str = ""
     password: str = ""
     extra_opts: str = ""
+    ssh_command: str = ""
     enabled: bool = False
     upload_dataset: bool = False
     source: str = "none"
@@ -33,6 +34,7 @@ class RemoteTrainConfig:
             identity=self.identity.strip(),
             password=self.password,
             extra_opts=self.extra_opts.strip(),
+            ssh_command=self.ssh_command.strip(),
             enabled=bool(self.enabled),
             upload_dataset=bool(self.upload_dataset),
             source=self.source,
@@ -64,6 +66,7 @@ def _from_env() -> RemoteTrainConfig:
         identity=os.environ.get("COMFYRESEARCH_TRAIN_REMOTE_IDENTITY", "").strip(),
         password=os.environ.get("COMFYRESEARCH_TRAIN_REMOTE_PASSWORD", ""),
         extra_opts=os.environ.get("COMFYRESEARCH_TRAIN_REMOTE_EXTRA_OPTS", "").strip(),
+        ssh_command=os.environ.get("COMFYRESEARCH_TRAIN_REMOTE_SSH_COMMAND", "").strip(),
         enabled=bool(host),
         upload_dataset=os.environ.get("COMFYRESEARCH_TRAIN_REMOTE_UPLOAD_DATASET", "").strip().lower()
         in {"1", "true", "yes", "on"},
@@ -85,6 +88,7 @@ def _parse_saved(raw: object) -> RemoteTrainConfig:
         identity=str(raw.get("identity", "")),
         password=str(raw.get("password", "")),
         extra_opts=str(raw.get("extra_opts", "")),
+        ssh_command=str(raw.get("ssh_command", "")),
         enabled=bool(raw.get("enabled", False)),
         upload_dataset=bool(raw.get("upload_dataset", False)),
         source="stored",

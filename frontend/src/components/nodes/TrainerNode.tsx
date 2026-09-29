@@ -4,11 +4,13 @@ import { createPortal } from "react-dom";
 import { buildSweepParamsFromCombo, buildTrainerRunSweepParams, formatSweepParamsSummary } from "../../graph/sweepParamExtract";
 import {
   applyAssignmentsToNodes,
+  comboAssignmentKey,
   formatTrainSeriesComboCaption,
   formatTrainSeriesSweptLines,
   getSweptAxisIdSet,
   planTrainSeriesAssignments,
   serializeExecutionGraphForTarget,
+  trainConfigKey,
   type SerializedTrainEdge,
   type TrainSeriesAssignment,
 } from "../../graph/trainSeriesPlan";
@@ -33,7 +35,7 @@ import { flushCheckpointApplyTrainerVizAndHydrateTv0d } from "../../graph/traine
 import { createTrainProgressUiThrottler } from "../../graph/throttleTrainProgressPersist";
 import { applyTrainerVizPayload, clearTrainerLinkedVizForSeriesRun, sleepBetweenSweepSeriesRuns } from "../../graph/trainerVizPayload";
 import { ComfyFloatField, ComfyIntField } from "./comfyNumberFields";
-import { ComfyIntListField } from "./comfyMultiFields";
+import { ComfyIntListField, ComfyScaledIntListField } from "./comfyMultiFields";
 import { intChoices, packIntList } from "./multiValueUtils";
 import { DiscreteMultiSelect } from "./DiscreteMultiSelect";
 import {
@@ -80,6 +82,23 @@ function progressPctFromStep(nextStep: number, totalSteps: number): number {
   return Math.min(100, Math.round((step / total) * 100));
 }
 
+function formatThroughput(tps: number): string {
+  if (tps >= 1e6) return `${(tps / 1e6).toFixed(2)}M`;
+  if (tps >= 1e3) return `${(tps / 1e3).toFixed(1)}k`;
+  return tps.toFixed(0);
+}
+
+function formatEta(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m > 0 ? `${h}h${m}m` : `${h}h`;
+  }
+  if (s >= 60) return `${Math.floor(s / 60)}m${(s % 60).toString().padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
 function patchTrainerData(
   id: string,
   patch: Partial<TrainerNodeData>,
@@ -105,7 +124,24 @@ type TrainerSocketId =
   | "batch_schedule";
 type TrainerOutputId = "checkpoint" | "loss_results" | "observable_results";
 
-type TrainStreamProgress = { type: "progress"; step: number; total: number };
+type QueueRow = {
+  combo: TrainSeriesAssignment[];
+  key: string;
+  line: string;
+  dup: boolean;
+};
+
+type TrainStreamProgress = {
+  type: "progress";
+  step: number;
+  total: number;
+  throughput?: {
+    tokens_per_second: number;
+    tokens_per_step: number;
+    steps_per_second: number;
+    eta_seconds: number | null;
+  };
+};
 type TrainStreamPaused = {
   type: "paused";
   next_step: number;
@@ -151,6 +187,7 @@ type RemoteTrainConfig = {
   identity: string;
   password: string;
   extra_opts: string;
+  ssh_command: string;
   enabled: boolean;
   upload_dataset: boolean;
 };
@@ -173,6 +210,7 @@ const DEFAULT_REMOTE_TRAIN_CONFIG: RemoteTrainConfig = {
   identity: "",
   password: "",
   extra_opts: "",
+  ssh_command: "",
   enabled: false,
   upload_dataset: false,
 };
@@ -469,7 +507,10 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
   const [remoteStatus, setRemoteStatus] = useState<RemoteTrainStatus | null>(null);
   const [remoteStatusText, setRemoteStatusText] = useState<string | null>(null);
   const [remoteStatusError, setRemoteStatusError] = useState<string | null>(null);
+  const [throughputText, setThroughputText] = useState<string | null>(null);
+  const throughputTextRef = useRef<string | null>(null);
   const [remoteSshCommand, setRemoteSshCommand] = useState("");
+  const [remoteSshExecutable, setRemoteSshExecutable] = useState("");
   const [localCudaDevices, setLocalCudaDevices] = useState<LocalCudaDeviceInfo[]>([]);
   const [localCudaLoading, setLocalCudaLoading] = useState(false);
   const [localCudaFetchError, setLocalCudaFetchError] = useState<string | null>(null);
@@ -923,11 +964,32 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
         if (raw.type !== "progress") return;
         const remotePhase = "Remote: running training...";
         if (expectRemoteBootstrap) setTrainPhaseText(remotePhase);
+        else setTrainPhaseText(null);
         const total = Math.max(1, raw.total);
         const step = Math.min(Math.max(0, raw.step), total);
         const within = step / total;
         const pctWithin = Math.min(100, Math.round(within * 100));
         setTrainProgressPct(pctWithin);
+        const th = raw.throughput;
+        if (th) {
+          const tps = Number(th.tokens_per_second) || 0;
+          const sps = Number(th.steps_per_second) || 0;
+          const eta = th.eta_seconds;
+          let line: string | null = null;
+          if (tps > 0) {
+            line = `${formatThroughput(tps)} tok/s`;
+            if (eta != null && Number.isFinite(eta) && eta >= 0) {
+              line += ` · ETA ${formatEta(eta)}`;
+            }
+          } else if (sps > 0) {
+            line = `${sps.toFixed(2)} step/s`;
+            if (eta != null && Number.isFinite(eta) && eta >= 0) {
+              line += ` · ETA ${formatEta(eta)}`;
+            }
+          }
+          setThroughputText(line);
+          throughputTextRef.current = line;
+        }
         const ctx = seriesProgressCtxRef.current;
         let seriesPct = 0;
         if (ctx && ctx.totalRuns > 1) {
@@ -996,6 +1058,7 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           if (pol) body.hessian_oversized_policy = pol;
 
           if (expectRemoteBootstrap) setTrainPhaseText("Remote: bootstrapping runtime...");
+          else setTrainPhaseText("正在准备训练：物化数据集 / 构建模型…");
           const res = await fetch("/api/train", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1089,6 +1152,12 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           setTrainError(planErr instanceof Error ? planErr.message : String(planErr));
           return;
         }
+        // User-edited queue wins; otherwise the default plan order.
+        if (d.trainQueueCustom && Array.isArray(d.trainQueue) && d.trainQueue.length > 0) {
+          combos = d.trainQueue;
+        }
+        const skipSet = new Set(d.trainQueueSkipKeys ?? []);
+        let skippedRuns = 0;
         if (startRunIdx === 0) {
           research?.onTrainerTrainPressed?.(id);
         }
@@ -1108,10 +1177,27 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
 
         for (let runIdx = startRunIdx; runIdx < totalRuns; runIdx++) {
           if (ac.signal.aborted) break;
+          const combo = combos[runIdx]!;
+          const comboKey = comboAssignmentKey(combo);
+          if (skipSet.has(comboKey)) {
+            // Duplicate / user-skipped combo: advance the series bar and move on.
+            skippedRuns += 1;
+            seriesProgressCtxRef.current = totalRuns > 1 ? { totalRuns, runIndex: runIdx } : null;
+            if (totalRuns > 1) {
+              setTrainSeriesBarPct(Math.min(100, Math.round(((runIdx + 1) / totalRuns) * 100)));
+              persistTrainUi({
+                loading: true,
+                paused: false,
+                seriesDual: true,
+                progressPct: 0,
+                seriesBarPct: Math.min(100, Math.round(((runIdx + 1) / totalRuns) * 100)),
+              });
+            }
+            continue;
+          }
           if (totalRuns > 1) {
             clearTrainerLinkedVizForSeriesRun(setNodes, nodesForTrain(), trainWireSnapshot as Edge[], id);
           }
-          const combo = combos[runIdx]!;
           lastSeriesComboRef.current = combo;
           seriesProgressCtxRef.current = totalRuns > 1 ? { totalRuns, runIndex: runIdx } : null;
           const paramLines = formatTrainSeriesSweptLines(combo, baseNodes, sweptAxisIds);
@@ -1216,6 +1302,42 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           if (!hasMoreSeriesRuns) {
             const ck = buildCompleteCheckpoint(complete);
             if (ck) update({ trainCompleteCheckpoint: ck });
+          }
+          // Record this completed config for duplicate detection (bounded history).
+          try {
+            const runKey = trainConfigKey(nodesRunPreview, trainGraph.edges, id);
+            const history = Array.isArray(d.completedRunKeys) ? [...d.completedRunKeys] : [];
+            if (!history.includes(runKey)) {
+              history.push(runKey);
+              if (history.length > 500) history.splice(0, history.length - 500);
+              update({ completedRunKeys: history });
+            }
+          } catch {
+            // history recording is best-effort
+          }
+          // Sweep results table: final ppl + swept params (seed excluded).
+          try {
+            const testArr =
+              Array.isArray(complete.test_loss_history) && complete.test_loss_history.length > 0
+                ? complete.test_loss_history
+                : complete.loss_history;
+            const finalLoss = testArr.length > 0 ? testArr[testArr.length - 1] : null;
+            if (finalLoss != null && Number.isFinite(finalLoss)) {
+              const params = { ...currentSweepParamsForVizRef.current };
+              const cleanParams: Record<string, string> = {};
+              const seedValues: Record<string, string> = {};
+              for (const [k, v] of Object.entries(params)) {
+                if (/(^|\.)(trainSeed|minibatchSeed|seed)$/.test(k)) seedValues[k] = v;
+                else cleanParams[k] = v;
+              }
+              const row = { params: cleanParams, seedValues, ppl: Math.exp(Number(finalLoss)) };
+              const rows = Array.isArray(d.sweepResultRows) ? [...d.sweepResultRows] : [];
+              rows.push(row);
+              if (rows.length > 500) rows.splice(0, rows.length - 500);
+              update({ sweepResultRows: rows });
+            }
+          } catch {
+            // results recording is best-effort
           }
           if (hasMoreSeriesRuns) {
             persistTrainUi({ loading: true, paused: false });
@@ -1393,10 +1515,12 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           setTrainPausing(false);
         }
         setTrainPhaseText(null);
+        setThroughputText(null);
+        throughputTextRef.current = null;
         if (preserveProgressAfter) {
-          persistTrainUi({ phaseText: null });
+          persistTrainUi({ phaseText: null, throughputText: null });
         } else {
-          persistTrainUi({ loading: false, phaseText: null });
+          persistTrainUi({ loading: false, phaseText: null, throughputText: null });
         }
         abortControllerRef.current = null;
         if (!preserveProgressAfter) {
@@ -1411,8 +1535,148 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
         }
       }
     },
-    [applyPausedTrainUi, d.trainSeriesPauseCtx, getEdges, getNodes, id, persistTrainUi, research, remoteCfg.host, remoteCfg.remote_path, setNodes, syncPauseCheckpoint, syncSeriesPauseCtx, update, usingAutoDlGpu],
+    [applyPausedTrainUi, d.completedRunKeys, d.sweepResultRows, d.trainQueue, d.trainQueueCustom, d.trainQueueSkipKeys, d.trainSeriesPauseCtx, getEdges, getNodes, id, persistTrainUi, research, remoteCfg.host, remoteCfg.remote_path, setNodes, syncPauseCheckpoint, syncSeriesPauseCtx, update, usingAutoDlGpu],
   );
+
+  // ---- Series queue panel: reorder / delete / append / skip duplicates ----
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueRows, setQueueRows] = useState<QueueRow[] | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+
+  const buildQueueRows = useCallback((): QueueRow[] => {
+    const nodes = getNodes().filter((n) => String(n.type) !== "graph_assist_failure_overlay");
+    const edges = getEdges();
+    const combos = planTrainSeriesAssignments(nodes, edges as Edge[], id);
+    const graph = serializeExecutionGraphForTarget(nodes, edges as Edge[], id);
+    const history = new Set(d.completedRunKeys ?? []);
+    const sweptAxisIds = getSweptAxisIdSet(nodes, edges as Edge[], id);
+    return combos.map((combo) => {
+      const applied = applyAssignmentsToNodes(graph.nodes, combo);
+      const dup = history.has(trainConfigKey(applied, graph.edges, id));
+      const line =
+        formatTrainSeriesComboCaption(combo, applied, sweptAxisIds) ||
+        formatTrainSeriesSweptLines(combo, applied, sweptAxisIds).join(", ");
+      return { combo, key: comboAssignmentKey(combo), line, dup };
+    });
+  }, [d.completedRunKeys, getEdges, getNodes, id]);
+
+  const openQueue = useCallback(() => {
+    setQueueRows(buildQueueRows());
+    setQueueOpen(true);
+  }, [buildQueueRows]);
+
+  const persistQueue = useCallback(
+    (rows: QueueRow[]) => {
+      setQueueRows(rows);
+      update({ trainQueueCustom: true, trainQueue: rows.map((r) => r.combo) });
+    },
+    [update],
+  );
+
+  const removeQueueRow = useCallback(
+    (index: number) => {
+      if (!queueRows) return;
+      const next = queueRows.filter((_, i) => i !== index);
+      persistQueue(next);
+    },
+    [persistQueue, queueRows],
+  );
+
+  const moveQueueRow = useCallback(
+    (toIndex: number) => {
+      if (!queueRows || dragIndexRef.current == null) return;
+      const from = dragIndexRef.current;
+      dragIndexRef.current = null;
+      if (from === toIndex) return;
+      const next = [...queueRows];
+      const [moved] = next.splice(from, 1);
+      next.splice(toIndex, 0, moved!);
+      persistQueue(next);
+    },
+    [persistQueue, queueRows],
+  );
+
+  const appendQueueCombos = useCallback(() => {
+    if (!queueRows) return;
+    const fresh = buildQueueRows().filter((r) => !queueRows.some((q) => q.key === r.key));
+    if (!fresh.length) {
+      setQueueRows([...queueRows]);
+      return;
+    }
+    persistQueue([...queueRows, ...fresh]);
+  }, [buildQueueRows, persistQueue, queueRows]);
+
+  const toggleQueueSkip = useCallback(
+    (key: string) => {
+      const current = new Set(d.trainQueueSkipKeys ?? []);
+      if (current.has(key)) current.delete(key);
+      else current.add(key);
+      update({ trainQueueSkipKeys: [...current] });
+    },
+    [d.trainQueueSkipKeys, update],
+  );
+
+  const resetQueue = useCallback(() => {
+    update({ trainQueue: undefined, trainQueueCustom: undefined, trainQueueSkipKeys: [] });
+    setQueueRows(buildQueueRows());
+  }, [buildQueueRows, update]);
+
+  const skipSet = useMemo(() => new Set(d.trainQueueSkipKeys ?? []), [d.trainQueueSkipKeys]);
+
+  // totalTokens -> derived trainingSteps preview (batch x context per step).
+  const expScalePreview = useMemo(() => {
+    const total = Number(d.totalTokens ?? 0);
+    if (!(total > 0)) return null;
+    const batchVals = intChoices(d.batchSize, -1).map((n) => Number(n)).filter((n) => n > 0);
+    if (!batchVals.length) return null;
+    const batch = Math.min(...batchVals);
+    const modelId = getEdges().find((e) => e.target === id && (e.targetHandle ?? "model") === "model")?.source;
+    const model = modelId ? getNodes().find((n) => n.id === modelId) : undefined;
+    const ctx = Number((model?.data as Record<string, unknown> | undefined)?.contextLength ?? 0);
+    if (!(ctx > 0)) return null;
+    const perStep = batch * ctx;
+    const steps = Math.ceil(total / perStep);
+    const warmSteps = Math.max(1, Math.ceil(Number(d.warmupTokens ?? 0) / perStep));
+    return { batch, ctx, perStep, steps, warmSteps };
+  }, [d.batchSize, d.totalTokens, d.warmupTokens, getEdges, getNodes, id]);
+
+  // ---- Sweep results table: final ppl, sorted ascending, multi-seed aggregated ----
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const resultTable = useMemo(() => {
+    const rows = d.sweepResultRows ?? [];
+    if (!rows.length) return [];
+    const groups = new Map<
+      string,
+      { params: Record<string, string>; ppls: number[]; seeds: string[] }
+    >();
+    for (const r of rows) {
+      const key = JSON.stringify(r.params, Object.keys(r.params).sort());
+      let g = groups.get(key);
+      if (!g) {
+        g = { params: r.params, ppls: [], seeds: [] };
+        groups.set(key, g);
+      }
+      g.ppls.push(r.ppl);
+      g.seeds.push(Object.values(r.seedValues).join(","));
+    }
+    return [...groups.values()]
+      .map((g) => {
+        const mean = g.ppls.reduce((a, b) => a + b, 0) / g.ppls.length;
+        const variance =
+          g.ppls.length > 1
+            ? g.ppls.reduce((a, b) => a + (b - mean) ** 2, 0) / (g.ppls.length - 1)
+            : NaN;
+        const std = Number.isFinite(variance) ? Math.sqrt(variance) : null;
+        return {
+          params: g.params,
+          mean,
+          std,
+          n: g.ppls.length,
+          seeds: [...new Set(g.seeds)].filter(Boolean).join(" / "),
+        };
+      })
+      .sort((a, b) => a.mean - b.mean);
+  }, [d.sweepResultRows]);
 
   const trainDisp = resolveTrainerTrainDisplay(
     {
@@ -1462,6 +1726,8 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
       setTrainSeriesDual(Boolean(ui.seriesDual));
       setTrainSeriesCaptionLines(ui.captionLines ?? null);
       setTrainPhaseText(ui.phaseText ?? null);
+      setThroughputText(ui.throughputText ?? null);
+      throughputTextRef.current = ui.throughputText ?? null;
       setTrainError(ui.error ?? null);
     } else if (sess) {
       setTrainLoading(true);
@@ -1630,6 +1896,9 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
             </div>
           )
         ) : null}
+        {throughputText ? (
+          <div className="cr-trainer-throughput nodrag nopan">{throughputText}</div>
+        ) : null}
         <div className="cr-node__header--row cr-node__header--trainer-main">
           <span className="cr-node__header-title nodrag nopan">Trainer</span>
           {uiPaused ? (
@@ -1731,19 +2000,172 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           </div>
         </div>
 
-        {trainingLengthMode === "steps" ? (
-          <ComfyIntField
-            labelNode={
-              <TrainerLengthModeSegment
-                mode={trainingLengthMode}
-                onModeChange={(mode) => update({ trainingLengthMode: normalizeTrainingLengthMode(mode) })}
-              />
-            }
-            value={d.trainingSteps}
-            min={1}
-            onCommit={(trainingSteps) => update({ trainingSteps })}
-            ariaLabel="Training steps"
+        <div className="cr-trainer-exp-scale">
+          <ComfyIntListField
+            key="exp-batch"
+            label="batch size"
+            values={intChoices(d.batchSize, -1)}
+            min={-1}
+            title="实验级 batch（默认 16）。-1 = 全批；正数 = mini-batch。"
+            onCommit={(vals) => update({ batchSize: packIntList(vals) })}
+            ariaLabel="Training batch size"
           />
+          <ComfyScaledIntListField
+            key="exp-total"
+            label="total tokens"
+            values={intChoices(d.totalTokens, 0)}
+            min={0}
+            title="实验级规模（默认 90M）：支持 90M / 4.5M / 1B 单位；按 batch×context 推导 dataset trainSize 与 trainingSteps；0 = 不推导"
+            onCommit={(vals) => update({ totalTokens: packIntList(vals) })}
+            ariaLabel="Total tokens"
+          />
+          <ComfyScaledIntListField
+            key="exp-warmup"
+            label="warmup tokens"
+            values={intChoices(d.warmupTokens, 0)}
+            min={0}
+            title="实验级 warmup（默认 4.5M）：支持 90M / 4.5M / 1B 单位；推导 lr_schedule 的 warmup steps；0 = 不推导"
+            onCommit={(vals) => update({ warmupTokens: packIntList(vals) })}
+            ariaLabel="Warmup tokens"
+          />
+        </div>
+
+        <div className="cr-trainer-queue-bar nodrag nopan">
+          <button
+            type="button"
+            className="cr-trainer-queue-bar__btn"
+            onClick={() => (queueOpen ? setQueueOpen(false) : openQueue())}
+          >
+            {queueOpen ? "收起队列" : "系列队列"}
+            {d.trainQueueCustom ? " · 已自定义" : ""}
+          </button>
+          <button
+            type="button"
+            className="cr-trainer-queue-bar__btn"
+            onClick={() => setResultsOpen((v) => !v)}
+          >
+            {resultsOpen ? "收起结果" : "sweep 结果"}
+            {resultTable.length ? `（${resultTable.length}）` : ""}
+          </button>
+        </div>
+
+        {resultsOpen && resultTable.length > 0 ? (
+          <div className="cr-trainer-results nodrag nopan">
+            <table className="cr-trainer-results__table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>参数（除 seed）</th>
+                  <th>final ppl</th>
+                  <th>n</th>
+                  <th>seeds</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultTable.map((g, i) => {
+                  const paramText = Object.entries(g.params)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(", ");
+                  const pplText =
+                    g.std != null ? `${g.mean.toFixed(2)} ± ${g.std.toFixed(2)}` : g.mean.toFixed(2);
+                  return (
+                    <tr key={`${i}:${paramText}`}>
+                      <td>{i + 1}</td>
+                      <td className="cr-trainer-results__params" title={paramText}>
+                        {paramText || "—"}
+                      </td>
+                      <td className="cr-trainer-results__ppl">{pplText}</td>
+                      <td>{g.n}</td>
+                      <td className="cr-trainer-results__seeds">{g.seeds || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div className="cr-trainer-results__hint">
+              final ppl = exp(最后 test loss) · 多 seed 自动聚合为 mean ± SD · 升序
+            </div>
+          </div>
+        ) : null}
+
+        {queueOpen && queueRows ? (
+          <div className="cr-trainer-queue nodrag nopan">
+            <div className="cr-trainer-queue__head">
+              <span className="cr-trainer-queue__title">
+                系列队列 · {queueRows.length} 组
+              </span>
+              <div className="cr-trainer-queue__head-actions">
+                <button type="button" onClick={appendQueueCombos}>追加新组合</button>
+                <button type="button" onClick={resetQueue}>恢复默认</button>
+              </div>
+            </div>
+            {queueRows.some((r) => r.dup) ? (
+              <div className="cr-trainer-queue__warn">
+                检测到 {queueRows.filter((r) => r.dup).length} 个与已跑配置完全相同的组合，默认跳过（点行右侧可恢复）
+              </div>
+            ) : null}
+            <div className="cr-trainer-queue__list">
+              {queueRows.map((row, i) => {
+                const skipped = skipSet.has(row.key);
+                return (
+                  <div
+                    key={row.key}
+                    className={`cr-trainer-queue__row${row.dup || skipped ? " cr-trainer-queue__row--dup" : ""}`}
+                    draggable
+                    onDragStart={() => {
+                      dragIndexRef.current = i;
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => moveQueueRow(i)}
+                    title={row.dup ? "与已跑配置相同" : "拖动调整顺序"}
+                  >
+                    <span className="cr-trainer-queue__idx">{i + 1}</span>
+                    <span className="cr-trainer-queue__line">{row.line}</span>
+                    <span
+                      className={`cr-trainer-queue__skip${skipped ? " cr-trainer-queue__skip--on" : ""}`}
+                      onClick={() => toggleQueueSkip(row.key)}
+                      title="点击切换 跑/跳过"
+                    >
+                      {skipped ? "跳过" : "跑"}
+                    </span>
+                    <span
+                      className="cr-trainer-queue__del"
+                      onClick={() => removeQueueRow(i)}
+                      title="删除该组合"
+                    >
+                      ✕
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="cr-trainer-queue__hint">
+              拖拽排序 · ✕ 删除 · 追加新组合按当前字段重新计划并入队（自动去重）· 已跑过的组合默认跳过
+            </div>
+          </div>
+        ) : null}
+
+        {trainingLengthMode === "steps" ? (
+          <>
+            <ComfyIntField
+              labelNode={
+                <TrainerLengthModeSegment
+                  mode={trainingLengthMode}
+                  onModeChange={(mode) => update({ trainingLengthMode: normalizeTrainingLengthMode(mode) })}
+                />
+              }
+              value={d.trainingSteps}
+              min={1}
+              onCommit={(trainingSteps) => update({ trainingSteps })}
+              ariaLabel="Training steps"
+            />
+            {expScalePreview ? (
+              <p className="cr-trainer-exp-preview nodrag nopan">
+                totalTokens → ≈{expScalePreview.steps.toLocaleString()} 步（每步 batch {expScalePreview.batch} × ctx {expScalePreview.ctx} = {expScalePreview.perStep.toLocaleString()} tok）· warmup ≈{expScalePreview.warmSteps} 步
+              </p>
+            ) : null}
+          </>
         ) : (
           <>
             <ComfyIntField
@@ -1779,15 +2201,6 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
             ariaLabel="Log frequency (steps)"
           />
         ) : null}
-
-        <ComfyIntListField
-          label="batch size"
-          values={intChoices(d.batchSize, -1)}
-          min={-1}
-          title="-1 = full batch; otherwise use the selected minibatch policy. Comma-separated for sweep."
-          onCommit={(vals) => update({ batchSize: packIntList(vals) })}
-          ariaLabel="Training batch size (-1 for full batch)"
-        />
 
         <DiscreteMultiSelect<ComputeModeUi>
           label="compute device"
@@ -1889,6 +2302,21 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
             </div>
           </div>
           <div className="cr-comfy-widget">
+            <span className="cr-comfy-widget__label">SSH executable</span>
+            <input
+              className="cr-input cr-comfy-widget__control nodrag nopan"
+              aria-label="AutoDL ssh executable"
+              value={remoteSshExecutable}
+              onChange={(e) => {
+                const next = e.target.value;
+                setRemoteSshExecutable(next);
+                setRemoteCfg((prev) => ({ ...prev, ssh_command: next }));
+              }}
+              placeholder="empty = system ssh (e.g. /Users/…/paratera-container-ssh for Keychain askpass)"
+              title="Custom ssh binary (e.g. a Keychain askpass wrapper); empty uses system ssh."
+            />
+          </div>
+          <div className="cr-comfy-widget">
             <span className="cr-comfy-widget__label">Password</span>
             <input
               type="password"
@@ -1957,24 +2385,6 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
           ariaLabel="Gradient clipping max norm"
         />
 
-        <label className="cr-node__field cr-node__field--checkbox nodrag nopan">
-          <input
-            type="checkbox"
-            checked={Boolean(d.disableExtraObservables)}
-            onChange={(e) => update({ disableExtraObservables: e.target.checked })}
-          />
-          <span>Disable extra observables (keep loss + accuracy only)</span>
-        </label>
-
-        <label className="cr-node__field cr-node__field--checkbox nodrag nopan">
-          <input
-            type="checkbox"
-            checked={d.liveVizUpdates !== false}
-            onChange={(e) => update({ liveVizUpdates: e.target.checked })}
-          />
-          <span>Live viz updates (stream curves during training)</span>
-        </label>
-
         <details
           className="cr-trainer-advanced nodrag nopan"
           onDoubleClick={(event) => event.stopPropagation()}
@@ -1983,6 +2393,24 @@ export function TrainerNode({ id, data, selected }: NodeProps) {
             <span>Advanced</span>
           </summary>
           <div className="cr-trainer-advanced__body">
+            <label className="cr-node__field cr-node__field--checkbox nodrag nopan">
+              <input
+                type="checkbox"
+                checked={Boolean(d.disableExtraObservables)}
+                onChange={(e) => update({ disableExtraObservables: e.target.checked })}
+              />
+              <span>Disable extra observables (keep loss + accuracy only)</span>
+            </label>
+
+            <label className="cr-node__field cr-node__field--checkbox nodrag nopan">
+              <input
+                type="checkbox"
+                checked={d.liveVizUpdates !== false}
+                onChange={(e) => update({ liveVizUpdates: e.target.checked })}
+              />
+              <span>Live viz updates (stream curves during training)</span>
+            </label>
+
             <ComfyIntField
               label="train seed"
               value={d.trainSeed ?? -1}

@@ -6,6 +6,31 @@ import { GENERATED_NODE_SPECS } from "../generated/generatedNodeSpecs";
 
 export const MAX_TRAIN_SERIES = 256;
 
+/** Canonical key of one swept combination (assignments sorted by node/key). */
+export function comboAssignmentKey(combo: TrainSeriesAssignment[]): string {
+  const norm = [...combo]
+    .sort((a, b) => (a.nodeId + a.key).localeCompare(b.nodeId + b.key))
+    .map((a) => `${a.nodeId}.${a.key}=${JSON.stringify(a.value)}`)
+    .join("|");
+  return norm;
+}
+
+/** Canonical key of a full runnable graph config (runtime keys stripped). */
+export function trainConfigKey(nodes: Node[], edges: Edge[], trainerId: string): string {
+  const graph = serializeExecutionGraphForTarget(nodes, edges, trainerId);
+  const parts = graph.nodes
+    .map((n) => {
+      const data: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(n.data ?? {})) {
+        if (TRAINER_RUNTIME_DATA_KEYS.has(k)) continue;
+        data[k] = v;
+      }
+      return `${n.id}(${n.type})=${JSON.stringify(data, Object.keys(data).sort())}`;
+    })
+    .sort();
+  return parts.join("\n");
+}
+
 export type TrainSeriesAssignment = { nodeId: string; key: string; value: unknown };
 
 function incomingSource(edges: Edge[], trainerId: string, handle: string): string | null {
@@ -76,7 +101,7 @@ const MODEL_SWEEP_ALLOWLIST = new Set([
   "rwkv_time_mix_token_model", "hyena_like_conv_model", "slot_attention_token_model",
   "diffusion_score_model", "numeric_transformer_model", "mpp_spatiotemporal_model",
   "afno_lite_spatiotemporal_model", "transformer_token_model", "transformer_multi_token_model",
-  "vgg11_cifar_model", "small_inception_cifar_model",
+  "vgg11_cifar_model", "small_inception_cifar_model", 
 ]);
 
 const INPUT_DIST_IDS = new Set(["standard_normal", "uniform_neg1_1", "uniform_0_1"]);

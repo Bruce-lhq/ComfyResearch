@@ -61,6 +61,10 @@ DEF = trainer_def(
             EnumField(key="computeDevice", label="Compute device", default="cpu",
                       options=("cpu", "auto", "cuda", "mps"), manifest_options=True, sweepable=False),
             IntField(key="batchSize", label="Batch size", default=-1),
+            # totalTokens derives dataset trainSize + trainingSteps and warmupTokens
+            # derives the lr_schedule warmup steps (0 = no derivation).
+            IntField(key="totalTokens", label="Total Tokens", default=0, min=0),
+            IntField(key="warmupTokens", label="Warmup Tokens", default=0, min=0),
             EnumField(
                 key="minibatchSampling",
                 label="Minibatch sampling",

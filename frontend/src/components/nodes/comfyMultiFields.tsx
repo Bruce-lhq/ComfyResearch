@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { parseFloatList, parseIntList } from "./multiValueUtils";
+import { formatScaledInt, parseFloatList, parseIntList, parseScaledIntList } from "./multiValueUtils";
 import { parsePositiveFloat } from "./numericParse";
 import { KatexMixedInline } from "./KatexMixedInline";
 
@@ -105,7 +105,7 @@ export function ComfyIntListField({ label, values, onCommit, min, max, title, ar
 
 export type ComfyFloatListFieldProps = {
   label: string;
-  values: number[];
+  values: (number | "inf")[];
   onCommit: (next: number[]) => void;
   min?: number;
   max?: number;
@@ -124,10 +124,11 @@ export function ComfyFloatListField({
   title,
   ariaLabel,
 }: ComfyFloatListFieldProps) {
-  const [text, setText] = useState(() => values.join(", "));
+  const fmt = (v: number | "inf") => (v === Infinity || v === "inf" ? "inf" : String(v));
+  const [text, setText] = useState(() => values.map(fmt).join(", "));
   const [warn, setWarn] = useState<string | null>(null);
   const multi = values.length > 1;
-  const valuesSerialized = values.join(", ");
+  const valuesSerialized = values.map(fmt).join(", ");
 
   useEffect(() => {
     setText(valuesSerialized);
@@ -162,7 +163,83 @@ export function ComfyFloatListField({
       }
       setWarn(null);
       onCommit(parsed);
-      setText(parsed.join(", "));
+      setText(parsed.map(fmt).join(", "));
+    } catch (e) {
+      setWarn(e instanceof Error ? e.message : String(e));
+      setText(valuesSerialized);
+    }
+  };
+
+  return (
+    <MultiFieldShell label={label} title={title} warn={warn} multi={multi}>
+      <input
+        type="text"
+        className={`${inputCls} nodrag nopan`}
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+        aria-label={ariaLabel}
+        value={text}
+        onChange={(e) => {
+          setWarn(null);
+          setText(e.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={blurOnEnter}
+      />
+    </MultiFieldShell>
+  );
+}
+
+export type ComfyScaledIntListFieldProps = {
+  label: string;
+  values: number[];
+  onCommit: (next: number[]) => void;
+  min?: number;
+  title?: string;
+  ariaLabel: string;
+};
+
+/** Token-scale knob: accepts K/M/B/G suffixes (``90M``, ``4.5M``, ``1B``); stores integers. */
+export function ComfyScaledIntListField({
+  label,
+  values,
+  onCommit,
+  min,
+  title,
+  ariaLabel,
+}: ComfyScaledIntListFieldProps) {
+  const [text, setText] = useState(() => values.map(formatScaledInt).join(", "));
+  const [warn, setWarn] = useState<string | null>(null);
+  const multi = values.length > 1;
+  const valuesSerialized = values.map(formatScaledInt).join(", ");
+
+  useEffect(() => {
+    setText(valuesSerialized);
+  }, [valuesSerialized]);
+
+  const commit = () => {
+    const t = text.trim();
+    if (t === "") {
+      setWarn("Enter at least one value.");
+      setText(valuesSerialized);
+      return;
+    }
+    try {
+      const parsed = parseScaledIntList(t);
+      if (min !== undefined) {
+        for (const n of parsed) {
+          if (n < min) throw new Error(`Must be >= ${min}`);
+        }
+      }
+      if (!parsed.length) {
+        setWarn("Enter at least one value.");
+        setText(valuesSerialized);
+        return;
+      }
+      setWarn(null);
+      onCommit(parsed);
+      setText(parsed.map(formatScaledInt).join(", "));
     } catch (e) {
       setWarn(e instanceof Error ? e.message : String(e));
       setText(valuesSerialized);

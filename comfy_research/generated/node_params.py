@@ -1436,6 +1436,8 @@ class TrainerParams(NodeParamsBase):
     trainSeed: int | list[int] = -1
     computeDevice: str | list[str] = "cpu"
     batchSize: int | list[int] = -1
+    totalTokens: int | list[int] = 0
+    warmupTokens: int | list[int] = 0
     minibatchSampling: str | list[str] = "independent_step"
     minibatchSeed: int | list[int] = -1
     gradClipMaxNorm: float | list[float] = 0

@@ -349,6 +349,12 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
 
         model.train()
         train_loop_compute_seconds = 0.0
+        # Throughput diagnostics: EMA seconds-per-step and tokens-per-step
+        # (token models only; others report batch/s as None).
+        step_time_ema: float | None = None
+        step_time_alpha = 0.2
+        tokens_per_step = 0
+        start_wall = time.time()
         for step in range(start_step, training_steps):
             ctrl = get_control(trainer_node_id)
             if ctrl is not None and ctrl.abort_requested:
@@ -484,6 +490,19 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
             optimizer.step()
             _apply_l2_weight_projection(model, l2_projection_nodes)
             train_loop_compute_seconds += time.perf_counter() - t_step_compute
+            # Throughput bookkeeping (wall-clock, includes evaluation at log ticks).
+            step_wall = time.time() - start_wall
+            if step_time_ema is None:
+                step_time_ema = step_wall
+            else:
+                step_time_ema = (1.0 - step_time_alpha) * step_time_ema + step_time_alpha * step_wall
+            if trainer_task == "token_classification" and int(xb.numel()) > 0:
+                tokens_per_step = int(xb.numel())
+            start_wall = time.time()
+            steps_per_sec = 1.0 / step_time_ema if step_time_ema and step_time_ema > 0 else 0.0
+            tokens_per_sec = steps_per_sec * tokens_per_step if tokens_per_step > 0 else 0.0
+            remaining_steps = total - (step + 1)
+            eta_seconds = remaining_steps / steps_per_sec if steps_per_sec > 0 else None
             if log_aggregation == "interval_sample_mean":
                 batch_sample_count = int(yb.shape[0]) if yb.dim() > 0 else 1
                 log_interval_loss_sum += float(base_loss.detach().item()) * batch_sample_count
@@ -551,7 +570,17 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                 )
                 log_interval_loss_sum = 0.0
                 log_interval_sample_count = 0
-            yield {"type": "progress", "step": done_steps, "total": total}
+            yield {
+                "type": "progress",
+                "step": done_steps,
+                "total": total,
+                "throughput": {
+                    "tokens_per_second": tokens_per_sec,
+                    "tokens_per_step": tokens_per_step,
+                    "steps_per_second": steps_per_sec,
+                    "eta_seconds": eta_seconds,
+                },
+            }
             if should_log:
                 observable_updates = observable_viz_metric_updates(
                     edges,
@@ -573,6 +602,12 @@ def run_training_loop(ctx: TrainerRunContext, recorder: ObservableRecorder) -> I
                     "observable_viz_updates": observable_updates,
                     "observable_metric_histories": dict(observable_metric_histories),
                     "observable_warnings": dict(recorder.observable_warnings),
+                    "throughput": {
+                        "tokens_per_second": tokens_per_sec,
+                        "tokens_per_step": tokens_per_step,
+                        "steps_per_second": steps_per_sec,
+                        "eta_seconds": eta_seconds,
+                    },
                 }
 
             if cbs_epochs_complete:

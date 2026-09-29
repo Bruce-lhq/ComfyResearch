@@ -8968,6 +8968,18 @@
         "defaultValue": -1
       },
       {
+        "kind": "int",
+        "key": "totalTokens",
+        "label": "Total Tokens",
+        "defaultValue": 0
+      },
+      {
+        "kind": "int",
+        "key": "warmupTokens",
+        "label": "Warmup Tokens",
+        "defaultValue": 0
+      },
+      {
         "kind": "enum",
         "key": "minibatchSampling",
         "label": "Minibatch sampling",

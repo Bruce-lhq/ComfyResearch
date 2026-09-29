@@ -15,7 +15,7 @@ from comfy_research.tests.test_dataset_channel_ledger import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_all_47_datasets_in_defs() -> None:
+def test_all_48_datasets_in_defs() -> None:
     from comfy_research.nodes.registry import dataset_def_types
 
     assert dataset_def_types() == EXPECTED_DATASET_NODE_KINDS, (
